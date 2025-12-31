@@ -10,7 +10,8 @@ import {
     AlertCircle,
     Pencil,
     Trash2,
-    ChevronRight
+    ChevronRight,
+    LayoutDashboard
 } from 'lucide-react';
 import { db } from '../services/db';
 import syncService from '../services/syncService';
@@ -338,7 +339,10 @@ export default function ProjectDashboard() {
 
     return (
         <div className="space-y-6">
-            <h2 className="text-xl font-bold">📊 Dashboard</h2>
+            <h2 className="text-xl font-bold flex items-center gap-2">
+                <LayoutDashboard size={22} className="text-gold" />
+                Dashboard
+            </h2>
 
             {/* Summary cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

@@ -10,7 +10,8 @@ import {
     X,
     Wifi,
     WifiOff,
-    RefreshCw
+    RefreshCw,
+    Coins
 } from 'lucide-react';
 import useOnlineStatus from '../hooks/useOnlineStatus';
 
@@ -37,8 +38,9 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                     >
                         {menuOpen ? <X size={24} /> : <Menu size={24} />}
                     </button>
-                    <h1 className="text-lg font-bold text-gold">
-                        💰 FinanzasObra
+                    <h1 className="text-lg font-bold text-gold flex items-center gap-2">
+                        <Coins size={22} />
+                        FinanzasObra
                     </h1>
                 </div>
 

@@ -1,6 +1,6 @@
 // TransactionForm component - Form for income/expense/transfers with confirmation
 import { useState, useEffect } from 'react';
-import { Save, Camera, ArrowRight, Check } from 'lucide-react';
+import { Save, Camera, ArrowRight, Check, ArrowDownLeft, ArrowUpRight, ArrowLeftRight } from 'lucide-react';
 import { db } from '../services/db';
 import syncService from '../services/syncService';
 import ConfirmModal from './ConfirmModal';
@@ -199,10 +199,10 @@ export default function TransactionForm({ onTransactionAdded }) {
 
     return (
         <div className="max-w-lg mx-auto">
-            <h2 className="text-xl font-bold mb-4">
-                {tipo === 'INGRESO' && '💵 Nuevo Ingreso'}
-                {tipo === 'EGRESO' && '💸 Nuevo Egreso'}
-                {tipo === 'TRANSFERENCIA' && '🔄 Nueva Transferencia'}
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                {tipo === 'INGRESO' && <><ArrowDownLeft size={22} className="text-green-500" /> Nuevo Ingreso</>}
+                {tipo === 'EGRESO' && <><ArrowUpRight size={22} className="text-red-500" /> Nuevo Egreso</>}
+                {tipo === 'TRANSFERENCIA' && <><ArrowLeftRight size={22} className="text-blue-500" /> Nueva Transferencia</>}
             </h2>
 
             {/* Type selector */}

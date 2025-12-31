@@ -5,6 +5,7 @@ import ProjectDashboard from './components/ProjectDashboard';
 import TransactionForm from './components/TransactionForm';
 import CajaList from './components/CajaList';
 import AdminPanel from './components/AdminPanel';
+import ReportsPanel from './components/ReportsPanel';
 import { db, seedInitialData } from './services/db';
 import syncService from './services/syncService';
 import useOnlineStatus from './hooks/useOnlineStatus';
@@ -78,21 +79,8 @@ function App() {
       {activeTab === 'nueva' && <TransactionForm onTransactionAdded={handleTransactionAdded} />}
       {activeTab === 'cajas' && <CajaList />}
       {activeTab === 'config' && <AdminPanel />}
-      {activeTab === 'reportes' && <ReportesPlaceholder />}
+      {activeTab === 'reportes' && <ReportsPanel />}
     </Layout>
-  );
-}
-
-// Placeholder for reports tab
-function ReportesPlaceholder() {
-  return (
-    <div className="text-center py-12">
-      <div className="text-6xl mb-4">📈</div>
-      <h2 className="text-xl font-bold mb-2">Reportes</h2>
-      <p className="text-gray-400">
-        Próximamente: Exportar datos a Excel, gráficos detallados y más.
-      </p>
-    </div>
   );
 }
 

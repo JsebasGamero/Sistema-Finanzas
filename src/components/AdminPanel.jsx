@@ -11,7 +11,8 @@ import {
     Trash2,
     X,
     Save,
-    ChevronLeft
+    ChevronLeft,
+    Settings
 } from 'lucide-react';
 import { db, generateUUID } from '../services/db';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
@@ -199,7 +200,10 @@ export default function AdminPanel() {
     if (!activeEntity) {
         return (
             <div className="space-y-6">
-                <h2 className="text-xl font-bold">⚙️ Configuración</h2>
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                    <Settings size={22} className="text-gold" />
+                    Configuración
+                </h2>
                 <p className="text-gray-400">Administra los datos del sistema</p>
 
                 <div className="grid grid-cols-2 gap-4">
