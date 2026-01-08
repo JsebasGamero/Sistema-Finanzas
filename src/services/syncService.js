@@ -12,6 +12,7 @@ export async function addToSyncQueue(tabla, operacion, datos) {
     });
 }
 
+
 // Process pending sync operations
 export async function processSyncQueue() {
     if (!isSupabaseConfigured()) {

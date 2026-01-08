@@ -18,6 +18,7 @@ import syncService from '../services/syncService';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
 import ConfirmModal from './ConfirmModal';
 import TransactionEditModal from './TransactionEditModal';
+import DeudaCajasPanel from './DeudaCajasPanel';
 
 export default function ProjectDashboard() {
     const [stats, setStats] = useState({
@@ -91,9 +92,6 @@ export default function ProjectDashboard() {
                 .sort((a, b) => b.gastos - a.gastos)
                 .slice(0, 5);
 
-            // Inter-caja debts
-            const deudasCajas = await syncService.getIntercajaDebts();
-
             // Recent transactions (top 5)
             const recentTransactions = sortedTransactions.slice(0, 5);
 
@@ -103,7 +101,7 @@ export default function ProjectDashboard() {
                 totalEgresos,
                 empresasBalance,
                 gastosProyecto,
-                deudasCajas,
+                deudasCajas: [], // Now handled by DeudaCajasPanel
                 recentTransactions
             });
         } finally {
@@ -436,29 +434,10 @@ export default function ProjectDashboard() {
                 </div>
             )}
 
-            {/* Inter-caja debts */}
-            {stats.deudasCajas.length > 0 && (
-                <div className="card border-amber-500/30 bg-amber-500/5">
-                    <h3 className="font-semibold mb-4 flex items-center gap-2 text-amber-400">
-                        <ArrowRightLeft size={18} />
-                        Préstamos Entre Cajas
-                    </h3>
-                    <div className="space-y-3">
-                        {stats.deudasCajas.map((deuda, idx) => (
-                            <div key={idx} className="flex items-center justify-between bg-secondary/50 p-3 rounded-lg">
-                                <div className="flex items-center gap-2 text-sm">
-                                    <span className="text-gray-300">{deuda.caja_origen}</span>
-                                    <ArrowRightLeft size={14} className="text-gray-500" />
-                                    <span className="text-gray-300">{deuda.caja_destino}</span>
-                                </div>
-                                <span className={`font-bold ${deuda.monto > 0 ? 'text-amber-400' : 'text-green'}`}>
-                                    {formatMoney(Math.abs(deuda.monto))}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
+            {/* Inter-caja debts - Full Management Panel */}
+            <div className="card">
+                <DeudaCajasPanel onDebtChanged={loadStats} />
+            </div>
 
             {/* Recent transactions */}
             <div className="card">

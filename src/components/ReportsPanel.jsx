@@ -25,6 +25,11 @@ import {
 import { db } from '../services/db';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import {
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+    PieChart as RechartsPie, Pie, Cell, Legend,
+    AreaChart, Area
+} from 'recharts';
 
 // Report types configuration
 const REPORT_TYPES = [
@@ -594,6 +599,7 @@ export default function ReportsPanel() {
                 <ResumenReport
                     stats={summaryStats}
                     formatMoney={formatMoney}
+                    transacciones={transacciones}
                 />
             )}
         </div>
@@ -879,8 +885,69 @@ function ProyectosReport({ projectExpenses, formatMoney }) {
     );
 }
 
-// Resumen Report Component
-function ResumenReport({ stats, formatMoney }) {
+// Resumen Report Component with Charts
+function ResumenReport({ stats, formatMoney, transacciones }) {
+    // Colors for pie chart
+    const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6'];
+
+    // Prepare data for pie chart (top categories)
+    const pieData = stats.topCategories.map(([name, value]) => ({
+        name: name.length > 12 ? name.substring(0, 12) + '...' : name,
+        value
+    }));
+
+    // Prepare monthly data for bar chart
+    const monthlyData = useMemo(() => {
+        const months = {};
+        transacciones.forEach(t => {
+            const date = t.fecha?.split('T')[0];
+            if (!date) return;
+            const month = date.substring(0, 7); // YYYY-MM
+            if (!months[month]) {
+                months[month] = { month, ingresos: 0, egresos: 0 };
+            }
+            if (t.tipo_movimiento === 'INGRESO') {
+                months[month].ingresos += t.monto;
+            } else if (t.tipo_movimiento === 'EGRESO') {
+                months[month].egresos += t.monto;
+            }
+        });
+
+        return Object.values(months)
+            .sort((a, b) => a.month.localeCompare(b.month))
+            .slice(-6) // Last 6 months
+            .map(m => ({
+                ...m,
+                name: new Date(m.month + '-01').toLocaleDateString('es-CO', { month: 'short' })
+            }));
+    }, [transacciones]);
+
+    // Prepare trend data for area chart
+    const trendData = useMemo(() => {
+        let balance = 0;
+        const sorted = [...transacciones]
+            .filter(t => t.fecha)
+            .sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+        const data = [];
+        sorted.forEach(t => {
+            if (t.tipo_movimiento === 'INGRESO') balance += t.monto;
+            else if (t.tipo_movimiento === 'EGRESO') balance -= t.monto;
+
+            const date = t.fecha.split('T')[0];
+            const existing = data.find(d => d.date === date);
+            if (existing) {
+                existing.balance = balance;
+            } else {
+                data.push({ date, balance, name: date.substring(5) });
+            }
+        });
+
+        return data.slice(-30); // Last 30 data points
+    }, [transacciones]);
+
+    const formatTooltip = (value) => formatMoney(value);
+
     return (
         <div className="space-y-4">
             {/* Main Stats */}
@@ -899,25 +966,9 @@ function ResumenReport({ stats, formatMoney }) {
                     </div>
                     <p className="text-xl font-bold text-red-400">{formatMoney(stats.totalEgresos)}</p>
                 </div>
-                <div className="card">
-                    <div className="flex items-center gap-2 text-gray-400 mb-1">
-                        <ArrowLeftRight size={16} className="text-blue-400" />
-                        <span className="text-sm">Transferencias</span>
-                    </div>
-                    <p className="text-xl font-bold text-blue-400">{formatMoney(stats.totalTransferencias)}</p>
-                </div>
-                <div className="card">
-                    <div className="flex items-center gap-2 text-gray-400 mb-1">
-                        <Wallet size={16} className="text-gold" />
-                        <span className="text-sm">Saldo Cajas</span>
-                    </div>
-                    <p className={`text-xl font-bold ${stats.saldoTotal >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {formatMoney(stats.saldoTotal)}
-                    </p>
-                </div>
             </div>
 
-            {/* Balance */}
+            {/* Balance Card */}
             <div className={`card ${stats.balance >= 0 ? 'bg-green-500/10 border-green-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
                 <div className="text-center">
                     <p className="text-sm text-gray-400 mb-1">Balance (Ingresos - Egresos)</p>
@@ -927,44 +978,103 @@ function ResumenReport({ stats, formatMoney }) {
                 </div>
             </div>
 
-            {/* Transaction Count */}
+            {/* Bar Chart - Ingresos vs Egresos */}
+            {monthlyData.length > 0 && (
+                <div className="card">
+                    <h4 className="font-semibold mb-3 flex items-center gap-2">
+                        <BarChart3 size={18} className="text-gold" />
+                        Ingresos vs Egresos por Mes
+                    </h4>
+                    <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={monthlyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                                <XAxis dataKey="name" tick={{ fill: '#9ca3af', fontSize: 12 }} />
+                                <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} tickFormatter={(v) => `${(v / 1000000).toFixed(0)}M`} />
+                                <Tooltip
+                                    formatter={formatTooltip}
+                                    contentStyle={{ background: '#1e293b', border: '1px solid #374151', borderRadius: '8px' }}
+                                    labelStyle={{ color: '#fff' }}
+                                />
+                                <Bar dataKey="ingresos" name="Ingresos" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="egresos" name="Egresos" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            )}
+
+            {/* Pie Chart - Categories */}
+            {pieData.length > 0 && (
+                <div className="card">
+                    <h4 className="font-semibold mb-3 flex items-center gap-2">
+                        <PieChart size={18} className="text-gold" />
+                        Egresos por Categoría
+                    </h4>
+                    <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <RechartsPie>
+                                <Pie
+                                    data={pieData}
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={50}
+                                    outerRadius={80}
+                                    paddingAngle={2}
+                                    dataKey="value"
+                                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                    labelLine={{ stroke: '#6b7280' }}
+                                >
+                                    {pieData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                    ))}
+                                </Pie>
+                                <Tooltip formatter={formatTooltip} contentStyle={{ background: '#1e293b', border: '1px solid #374151', borderRadius: '8px' }} />
+                            </RechartsPie>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            )}
+
+            {/* Area Chart - Balance Trend */}
+            {trendData.length > 0 && (
+                <div className="card">
+                    <h4 className="font-semibold mb-3 flex items-center gap-2">
+                        <TrendingUp size={18} className="text-gold" />
+                        Tendencia del Balance
+                    </h4>
+                    <div className="h-48">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                                <XAxis dataKey="name" tick={{ fill: '#9ca3af', fontSize: 10 }} />
+                                <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} />
+                                <Tooltip formatter={formatTooltip} contentStyle={{ background: '#1e293b', border: '1px solid #374151', borderRadius: '8px' }} />
+                                <defs>
+                                    <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.8} />
+                                        <stop offset="95%" stopColor="#fbbf24" stopOpacity={0} />
+                                    </linearGradient>
+                                </defs>
+                                <Area
+                                    type="monotone"
+                                    dataKey="balance"
+                                    stroke="#fbbf24"
+                                    fillOpacity={1}
+                                    fill="url(#colorBalance)"
+                                />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            )}
+
+            {/* Stats Summary */}
             <div className="card">
                 <div className="flex items-center justify-between">
                     <span className="text-gray-400">Total de movimientos</span>
                     <span className="text-xl font-bold text-white">{stats.transactionCount}</span>
                 </div>
-            </div>
-
-            {/* Top Categories */}
-            <div className="card">
-                <h4 className="font-semibold mb-3 flex items-center gap-2">
-                    <PieChart size={18} className="text-gold" />
-                    Top 5 Categorías (Egresos)
-                </h4>
-                {stats.topCategories.length === 0 ? (
-                    <p className="text-gray-500 text-sm">No hay datos de categorías</p>
-                ) : (
-                    <div className="space-y-2">
-                        {stats.topCategories.map(([cat, amount], idx) => {
-                            const maxAmount = stats.topCategories[0][1];
-                            const percentage = (amount / maxAmount) * 100;
-                            return (
-                                <div key={idx}>
-                                    <div className="flex justify-between text-sm mb-1">
-                                        <span className="text-gray-300">{cat}</span>
-                                        <span className="text-red-400 font-medium">{formatMoney(amount)}</span>
-                                    </div>
-                                    <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-                                        <div
-                                            className="h-full bg-gradient-to-r from-red-500 to-orange-500"
-                                            style={{ width: `${percentage}%` }}
-                                        />
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
             </div>
         </div>
     );
