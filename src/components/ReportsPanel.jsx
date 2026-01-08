@@ -20,7 +20,9 @@ import {
     ChevronUp,
     FileSpreadsheet,
     PieChart,
-    FileText
+    FileText,
+    CreditCard,
+    History
 } from 'lucide-react';
 import { db } from '../services/db';
 import jsPDF from 'jspdf';
@@ -37,6 +39,7 @@ const REPORT_TYPES = [
     { id: 'proveedores', name: 'Proveedores', icon: Users },
     { id: 'cajas', name: 'Saldo Cajas', icon: Wallet },
     { id: 'proyectos', name: 'Por Proyecto', icon: FolderOpen },
+    { id: 'deudas', name: 'Deudas', icon: CreditCard },
     { id: 'resumen', name: 'Resumen', icon: PieChart }
 ];
 
@@ -50,6 +53,7 @@ export default function ReportsPanel() {
     const [cajas, setCajas] = useState([]);
     const [proyectos, setProyectos] = useState([]);
     const [empresas, setEmpresas] = useState([]);
+    const [deudasTerceros, setDeudasTerceros] = useState([]);
 
     // Filters
     const [searchTerm, setSearchTerm] = useState('');
@@ -85,6 +89,16 @@ export default function ReportsPanel() {
             setCajas(caj);
             setProyectos(proy);
             setEmpresas(emp);
+
+            // Load deudas terceros
+            if (db.deudas_terceros) {
+                try {
+                    const deudas = await db.deudas_terceros.toArray();
+                    setDeudasTerceros(deudas || []);
+                } catch (e) {
+                    setDeudasTerceros([]);
+                }
+            }
         } finally {
             setLoading(false);
         }
@@ -595,6 +609,15 @@ export default function ReportsPanel() {
                 />
             )}
 
+            {activeReport === 'deudas' && (
+                <DeudasReport
+                    deudas={deudasTerceros}
+                    terceros={terceros}
+                    proyectos={proyectos}
+                    formatMoney={formatMoney}
+                />
+            )}
+
             {activeReport === 'resumen' && (
                 <ResumenReport
                     stats={summaryStats}
@@ -1074,6 +1097,250 @@ function ResumenReport({ stats, formatMoney, transacciones }) {
                 <div className="flex items-center justify-between">
                     <span className="text-gray-400">Total de movimientos</span>
                     <span className="text-xl font-bold text-white">{stats.transactionCount}</span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// Deudas Report Component - Supplier/Third-party debts
+function DeudasReport({ deudas, terceros, proyectos, formatMoney }) {
+    const [expandedId, setExpandedId] = useState(null);
+    const [filterEstado, setFilterEstado] = useState('');
+
+    function getTerceroName(id) {
+        return terceros.find(t => t.id === id)?.nombre || 'Desconocido';
+    }
+
+    function getProyectoName(id) {
+        return proyectos.find(p => p.id === id)?.nombre || '-';
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '';
+        return new Date(dateStr + 'T00:00:00').toLocaleDateString('es-CO', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric'
+        });
+    }
+
+    // Filter deudas
+    const filteredDeudas = useMemo(() => {
+        return deudas
+            .filter(d => !filterEstado || d.estado === filterEstado)
+            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    }, [deudas, filterEstado]);
+
+    // Summary statistics
+    const stats = useMemo(() => {
+        const pending = deudas.filter(d => d.estado !== 'PAGADA');
+        const paid = deudas.filter(d => d.estado === 'PAGADA');
+        const totalPending = pending.reduce((sum, d) => sum + d.monto_pendiente, 0);
+        const totalOriginal = deudas.reduce((sum, d) => sum + d.monto_original, 0);
+        const totalPaid = totalOriginal - totalPending;
+
+        // Group by tercero
+        const byTercero = {};
+        pending.forEach(d => {
+            if (!byTercero[d.tercero_id]) {
+                byTercero[d.tercero_id] = { nombre: getTerceroName(d.tercero_id), pendiente: 0, original: 0 };
+            }
+            byTercero[d.tercero_id].pendiente += d.monto_pendiente;
+            byTercero[d.tercero_id].original += d.monto_original;
+        });
+
+        const tercerosList = Object.values(byTercero).sort((a, b) => b.pendiente - a.pendiente);
+
+        return {
+            totalPending,
+            totalPaid,
+            totalOriginal,
+            pendingCount: pending.length,
+            paidCount: paid.length,
+            byTercero: tercerosList
+        };
+    }, [deudas, terceros]);
+
+    // Data for pie chart
+    const pieData = stats.byTercero.slice(0, 5).map(t => ({
+        name: t.nombre.length > 15 ? t.nombre.substring(0, 15) + '...' : t.nombre,
+        value: t.pendiente
+    }));
+    const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6'];
+
+    if (deudas.length === 0) {
+        return (
+            <div className="card text-center py-8 text-gray-500">
+                <CreditCard size={32} className="mx-auto mb-2 opacity-50" />
+                <p>No hay deudas registradas</p>
+                <p className="text-sm mt-1">Registra deudas a proveedores en el Dashboard</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-4">
+            {/* Summary Cards */}
+            <div className="grid grid-cols-3 gap-3">
+                <div className="card">
+                    <div className="text-xs text-gray-500 mb-1">Total Deudas</div>
+                    <p className="text-lg font-bold text-white">{formatMoney(stats.totalOriginal)}</p>
+                </div>
+                <div className="card bg-green-500/10 border-green-500/30">
+                    <div className="text-xs text-green-400 mb-1">Abonado</div>
+                    <p className="text-lg font-bold text-green-400">{formatMoney(stats.totalPaid)}</p>
+                </div>
+                <div className="card bg-red-500/10 border-red-500/30">
+                    <div className="text-xs text-red-400 mb-1">Pendiente</div>
+                    <p className="text-lg font-bold text-red-400">{formatMoney(stats.totalPending)}</p>
+                </div>
+            </div>
+
+            {/* Pie Chart - By Tercero */}
+            {pieData.length > 0 && (
+                <div className="card">
+                    <h4 className="font-semibold mb-3 flex items-center gap-2 text-sm">
+                        <CreditCard size={16} className="text-gold" />
+                        Deudas por Acreedor
+                    </h4>
+                    <div className="h-48">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <RechartsPie>
+                                <Pie
+                                    data={pieData}
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={40}
+                                    outerRadius={70}
+                                    paddingAngle={2}
+                                    dataKey="value"
+                                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                    labelLine={{ stroke: '#6b7280' }}
+                                >
+                                    {pieData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                    ))}
+                                </Pie>
+                                <Tooltip formatter={(value) => formatMoney(value)} contentStyle={{ background: '#1e293b', border: '1px solid #374151', borderRadius: '8px' }} />
+                            </RechartsPie>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            )}
+
+            {/* Filter */}
+            <div className="flex gap-2 items-center">
+                <span className="text-sm text-gray-400">Filtrar:</span>
+                <select
+                    value={filterEstado}
+                    onChange={(e) => setFilterEstado(e.target.value)}
+                    className="input-field text-sm flex-1"
+                >
+                    <option value="">Todos ({deudas.length})</option>
+                    <option value="PENDIENTE">Pendiente ({deudas.filter(d => d.estado === 'PENDIENTE').length})</option>
+                    <option value="PARCIAL">Parcial ({deudas.filter(d => d.estado === 'PARCIAL').length})</option>
+                    <option value="PAGADA">Pagada ({deudas.filter(d => d.estado === 'PAGADA').length})</option>
+                </select>
+            </div>
+
+            {/* Debts List */}
+            <div className="space-y-2">
+                {filteredDeudas.map(deuda => (
+                    <div key={deuda.id} className={`card ${deuda.estado === 'PAGADA' ? 'opacity-60' : ''}`}>
+                        <button
+                            onClick={() => setExpandedId(expandedId === deuda.id ? null : deuda.id)}
+                            className="w-full flex items-center justify-between"
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className={`p-2 rounded-lg ${deuda.estado === 'PAGADA' ? 'bg-green-500/20' :
+                                        deuda.estado === 'PARCIAL' ? 'bg-blue-500/20' : 'bg-red-500/20'
+                                    }`}>
+                                    <CreditCard size={16} className={
+                                        deuda.estado === 'PAGADA' ? 'text-green-400' :
+                                            deuda.estado === 'PARCIAL' ? 'text-blue-400' : 'text-red-400'
+                                    } />
+                                </div>
+                                <div className="text-left">
+                                    <p className="font-medium text-white text-sm">{getTerceroName(deuda.tercero_id)}</p>
+                                    <p className="text-xs text-gray-500">
+                                        {formatDate(deuda.fecha_deuda)}
+                                        {deuda.proyecto_id && ` • ${getProyectoName(deuda.proyecto_id)}`}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="text-right">
+                                    <p className={`font-bold text-sm ${deuda.estado === 'PAGADA' ? 'text-green-400' : 'text-red-400'
+                                        }`}>
+                                        {formatMoney(deuda.monto_pendiente)}
+                                    </p>
+                                    {deuda.monto_pendiente !== deuda.monto_original && (
+                                        <p className="text-xs text-gray-500">de {formatMoney(deuda.monto_original)}</p>
+                                    )}
+                                </div>
+                                {expandedId === deuda.id ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+                            </div>
+                        </button>
+
+                        {expandedId === deuda.id && (
+                            <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
+                                {deuda.descripcion && (
+                                    <p className="text-sm text-gray-400">{deuda.descripcion}</p>
+                                )}
+
+                                {/* Payment Progress */}
+                                <div>
+                                    <div className="flex justify-between text-xs text-gray-500 mb-1">
+                                        <span>Progreso de pago</span>
+                                        <span>{((1 - deuda.monto_pendiente / deuda.monto_original) * 100).toFixed(0)}%</span>
+                                    </div>
+                                    <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full bg-gradient-to-r from-green-500 to-emerald-400"
+                                            style={{ width: `${(1 - deuda.monto_pendiente / deuda.monto_original) * 100}%` }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Payment History */}
+                                {deuda.pagos && deuda.pagos.length > 0 && (
+                                    <div className="bg-secondary/30 rounded-lg p-2">
+                                        <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                                            <History size={12} /> Abonos ({deuda.pagos.length})
+                                        </p>
+                                        <div className="space-y-1 max-h-32 overflow-y-auto">
+                                            {deuda.pagos.map((pago, idx) => (
+                                                <div key={idx} className="flex justify-between text-xs">
+                                                    <div className="text-gray-400">
+                                                        {new Date(pago.fecha).toLocaleDateString()}
+                                                        {pago.descripcion && <span className="ml-1 text-gray-500">- {pago.descripcion}</span>}
+                                                    </div>
+                                                    <span className="text-green-400">+{formatMoney(pago.monto)}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+
+            {/* Summary Table */}
+            <div className="card">
+                <h4 className="font-semibold mb-3 text-sm">Resumen por Acreedor</h4>
+                <div className="space-y-2">
+                    {stats.byTercero.map((t, idx) => (
+                        <div key={idx} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                            <span className="text-sm text-gray-300">{t.nombre}</span>
+                            <div className="text-right">
+                                <span className="text-sm font-medium text-red-400">{formatMoney(t.pendiente)}</span>
+                                <span className="text-xs text-gray-500 ml-2">/ {formatMoney(t.original)}</span>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             </div>
         </div>

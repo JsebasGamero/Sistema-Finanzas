@@ -198,7 +198,7 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
                 </h3>
                 <button
                     onClick={() => setShowForm(!showForm)}
-                    className="flex items-center gap-1 bg-gold text-black px-3 py-1.5 rounded-lg text-sm font-medium"
+                    className="flex items-center gap-1 bg-gold text-white px-3 py-1.5 rounded-lg text-sm font-medium"
                 >
                     <Plus size={16} />
                     Nueva Deuda
@@ -282,7 +282,7 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
                     </div>
 
                     <div className="flex gap-2">
-                        <button type="submit" className="flex-1 bg-gold text-black py-2 rounded-lg font-medium">
+                        <button type="submit" className="flex-1 bg-gold text-white py-2 rounded-lg font-medium">
                             Registrar Préstamo
                         </button>
                         <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 bg-card rounded-lg">
