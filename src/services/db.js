@@ -25,6 +25,31 @@ db.version(1).stores({
     sync_queue: '++id, tabla, operacion, datos, timestamp'
 });
 
+// Version 2 - Add inter-box debts
+db.version(2).stores({
+    empresas: 'id, nombre, nit, created_at',
+    proyectos: 'id, nombre, empresa_id, presupuesto_estimado, estado, created_at',
+    cajas: 'id, nombre, tipo, empresa_id, saldo_actual, created_at',
+    terceros: 'id, nombre, tipo, created_at',
+    transacciones: 'id, fecha, descripcion, monto, tipo_movimiento, categoria, proyecto_id, caja_origen_id, caja_destino_id, tercero_id, soporte_url, sincronizado, created_at',
+    sync_queue: '++id, tabla, operacion, datos, timestamp',
+    // Deudas entre cajas
+    deudas_cajas: 'id, caja_deudora_id, caja_acreedora_id, monto_original, monto_pendiente, fecha_prestamo, estado, created_at'
+});
+
+// Version 3 - Add supplier/third-party debts
+db.version(3).stores({
+    empresas: 'id, nombre, nit, created_at',
+    proyectos: 'id, nombre, empresa_id, presupuesto_estimado, estado, created_at',
+    cajas: 'id, nombre, tipo, empresa_id, saldo_actual, created_at',
+    terceros: 'id, nombre, tipo, created_at',
+    transacciones: 'id, fecha, descripcion, monto, tipo_movimiento, categoria, proyecto_id, caja_origen_id, caja_destino_id, tercero_id, soporte_url, sincronizado, created_at',
+    sync_queue: '++id, tabla, operacion, datos, timestamp',
+    deudas_cajas: 'id, caja_deudora_id, caja_acreedora_id, monto_original, monto_pendiente, fecha_prestamo, estado, created_at',
+    // Deudas a terceros (proveedores, empleados)
+    deudas_terceros: 'id, tercero_id, proyecto_id, empresa_id, monto_original, monto_pendiente, fecha_deuda, estado, descripcion, created_at'
+});
+
 // Generate UUID v4
 export function generateUUID() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {

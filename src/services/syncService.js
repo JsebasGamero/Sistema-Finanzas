@@ -12,6 +12,7 @@ export async function addToSyncQueue(tabla, operacion, datos) {
     });
 }
 
+
 // Process pending sync operations
 export async function processSyncQueue() {
     if (!isSupabaseConfigured()) {
@@ -53,6 +54,43 @@ export async function processSyncQueue() {
             console.log(`📤 Supabase response:`, result);
 
             if (result.error) {
+                // Handle specific error codes
+                const errorCode = result.error.code;
+                const errorStatus = result.status;
+
+                // 409 Conflict or 23505 = Record already exists, consider it synced
+                if (errorStatus === 409 || errorCode === '23505') {
+                    console.log('⚠️ Record already exists in Supabase, removing from queue');
+                    await db.sync_queue.delete(operation.id);
+                    if (operation.tabla === 'transacciones') {
+                        await db.transacciones.update(datos.id, { sincronizado: true });
+                    }
+                    syncedCount++;
+                    continue;
+                }
+
+                // 23503 = Foreign key violation (proyecto_id, tercero_id, etc. doesn't exist)
+                // Try inserting with null foreign keys
+                if (errorCode === '23503') {
+                    console.log('⚠️ Foreign key error, retrying with null foreign keys...');
+                    const cleanData = { ...supabaseData };
+                    // Set potentially invalid foreign keys to null
+                    if (cleanData.proyecto_id) cleanData.proyecto_id = null;
+                    if (cleanData.tercero_id) cleanData.tercero_id = null;
+
+                    const retryResult = await supabase.from(operation.tabla).insert(cleanData);
+
+                    if (!retryResult.error || retryResult.status === 409) {
+                        console.log('✅ Synced with null foreign keys');
+                        await db.sync_queue.delete(operation.id);
+                        if (operation.tabla === 'transacciones') {
+                            await db.transacciones.update(datos.id, { sincronizado: true });
+                        }
+                        syncedCount++;
+                        continue;
+                    }
+                }
+
                 console.error('❌ Sync error:', result.error);
                 errors.push({ operation, error: result.error });
             } else {

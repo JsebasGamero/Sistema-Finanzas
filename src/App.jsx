@@ -1,13 +1,16 @@
 // Main App component
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Layout from './components/Layout';
 import ProjectDashboard from './components/ProjectDashboard';
 import TransactionForm from './components/TransactionForm';
 import CajaList from './components/CajaList';
 import AdminPanel from './components/AdminPanel';
+import ReportsPanel from './components/ReportsPanel';
+import ToastContainer from './components/ToastNotification';
 import { db, seedInitialData } from './services/db';
 import syncService from './services/syncService';
 import useOnlineStatus from './hooks/useOnlineStatus';
+import useToast from './hooks/useToast';
 import './index.css';
 
 function App() {
@@ -15,16 +18,24 @@ function App() {
   const [pendingSync, setPendingSync] = useState(0);
   const [initialized, setInitialized] = useState(false);
   const isOnline = useOnlineStatus();
+  const toast = useToast();
+  const wasOnline = useRef(true);
 
   useEffect(() => {
     initializeApp();
   }, []);
 
-  // Try to sync when coming back online
+  // Detect online/offline changes and show notifications
   useEffect(() => {
-    if (isOnline && pendingSync > 0) {
-      handleSync();
+    if (wasOnline.current && !isOnline) {
+      toast.warning('📴 Modo sin conexión - Los cambios se guardarán localmente');
+    } else if (!wasOnline.current && isOnline) {
+      toast.success('🌐 Conexión restablecida');
+      if (pendingSync > 0) {
+        handleSync();
+      }
     }
+    wasOnline.current = isOnline;
   }, [isOnline]);
 
   async function initializeApp() {
@@ -45,15 +56,20 @@ function App() {
 
   async function handleSync() {
     const result = await syncService.processSyncQueue();
-    if (result.success) {
-      const count = await syncService.getPendingSyncCount();
-      setPendingSync(count);
+    const count = await syncService.getPendingSyncCount();
+    setPendingSync(count);
+
+    if (result.success && result.synced > 0) {
+      toast.success(`✅ Sincronizado: ${result.synced} operación(es)`);
+    } else if (result.errors && result.errors.length > 0) {
+      toast.error(`❌ Error de sincronización`);
     }
   }
 
   async function handleTransactionAdded() {
     const count = await syncService.getPendingSyncCount();
     setPendingSync(count);
+    toast.success('✅ Transacción guardada');
   }
 
   if (!initialized) {
@@ -68,31 +84,21 @@ function App() {
   }
 
   return (
-    <Layout
-      activeTab={activeTab}
-      setActiveTab={setActiveTab}
-      pendingSync={pendingSync}
-      onSync={handleSync}
-    >
-      {activeTab === 'dashboard' && <ProjectDashboard />}
-      {activeTab === 'nueva' && <TransactionForm onTransactionAdded={handleTransactionAdded} />}
-      {activeTab === 'cajas' && <CajaList />}
-      {activeTab === 'config' && <AdminPanel />}
-      {activeTab === 'reportes' && <ReportesPlaceholder />}
-    </Layout>
-  );
-}
-
-// Placeholder for reports tab
-function ReportesPlaceholder() {
-  return (
-    <div className="text-center py-12">
-      <div className="text-6xl mb-4">📈</div>
-      <h2 className="text-xl font-bold mb-2">Reportes</h2>
-      <p className="text-gray-400">
-        Próximamente: Exportar datos a Excel, gráficos detallados y más.
-      </p>
-    </div>
+    <>
+      <ToastContainer toasts={toast.toasts} onRemove={toast.removeToast} />
+      <Layout
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        pendingSync={pendingSync}
+        onSync={handleSync}
+      >
+        {activeTab === 'dashboard' && <ProjectDashboard />}
+        {activeTab === 'nueva' && <TransactionForm onTransactionAdded={handleTransactionAdded} />}
+        {activeTab === 'cajas' && <CajaList />}
+        {activeTab === 'config' && <AdminPanel />}
+        {activeTab === 'reportes' && <ReportsPanel />}
+      </Layout>
+    </>
   );
 }
 

@@ -1,6 +1,6 @@
 // TransactionEditModal - Modal to edit existing transactions
 import { useState, useEffect } from 'react';
-import { X, Save, ArrowRight } from 'lucide-react';
+import { X, Save, ArrowRight, ArrowDownLeft, ArrowUpRight, ArrowLeftRight } from 'lucide-react';
 import { db } from '../services/db';
 
 export default function TransactionEditModal({
@@ -97,13 +97,13 @@ export default function TransactionEditModal({
                 {/* Form */}
                 <form onSubmit={handleSubmit} className="p-6 space-y-4">
                     {/* Type indicator (read-only) */}
-                    <div className={`text-center py-2 rounded-lg font-medium ${tipo === 'INGRESO' ? 'bg-green-500/20 text-green-400' :
+                    <div className={`flex items-center justify-center gap-2 py-2 rounded-lg font-medium ${tipo === 'INGRESO' ? 'bg-green-500/20 text-green-400' :
                         tipo === 'EGRESO' ? 'bg-red-500/20 text-red-400' :
                             'bg-blue-500/20 text-blue-400'
                         }`}>
-                        {tipo === 'INGRESO' && '💵 Ingreso'}
-                        {tipo === 'EGRESO' && '💸 Egreso'}
-                        {tipo === 'TRANSFERENCIA' && '🔄 Transferencia'}
+                        {tipo === 'INGRESO' && <><ArrowDownLeft size={18} /> Ingreso</>}
+                        {tipo === 'EGRESO' && <><ArrowUpRight size={18} /> Egreso</>}
+                        {tipo === 'TRANSFERENCIA' && <><ArrowLeftRight size={18} /> Transferencia</>}
                     </div>
 
                     {/* Amount */}
