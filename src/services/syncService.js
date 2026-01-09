@@ -35,7 +35,7 @@ export async function processSyncQueue() {
             let result;
 
             // Prepare data for Supabase - remove local-only fields
-            const supabaseData = prepareForSupabase(datos);
+            const supabaseData = prepareForSupabase(datos, operation.tabla);
 
             console.log(`🔄 Syncing ${operation.operacion} to ${operation.tabla}:`, supabaseData);
 
@@ -119,21 +119,38 @@ export async function processSyncQueue() {
 }
 
 // Prepare data for Supabase (remove/convert local-only fields)
-function prepareForSupabase(data) {
+function prepareForSupabase(data, tabla = 'transacciones') {
     const prepared = { ...data };
 
     // Convert date format if needed
     if (prepared.fecha && typeof prepared.fecha === 'string') {
-        // Ensure date is in YYYY-MM-DD format
         prepared.fecha = prepared.fecha.split('T')[0];
     }
+    if (prepared.fecha_prestamo && typeof prepared.fecha_prestamo === 'string') {
+        prepared.fecha_prestamo = prepared.fecha_prestamo.split('T')[0];
+    }
+    if (prepared.fecha_deuda && typeof prepared.fecha_deuda === 'string') {
+        prepared.fecha_deuda = prepared.fecha_deuda.split('T')[0];
+    }
 
-    // Only include fields that exist in Supabase schema
-    const allowedFields = [
-        'id', 'fecha', 'descripcion', 'monto', 'tipo_movimiento', 'categoria',
-        'proyecto_id', 'caja_origen_id', 'caja_destino_id', 'tercero_id',
-        'soporte_url', 'sincronizado', 'device_id'
-    ];
+    // Fields allowed per table
+    const tableFields = {
+        transacciones: [
+            'id', 'fecha', 'descripcion', 'monto', 'tipo_movimiento', 'categoria',
+            'proyecto_id', 'caja_origen_id', 'caja_destino_id', 'tercero_id',
+            'soporte_url', 'sincronizado', 'device_id', 'empresa_id', 'created_at'
+        ],
+        deudas_cajas: [
+            'id', 'caja_deudora_id', 'caja_acreedora_id', 'monto_original',
+            'monto_pendiente', 'fecha_prestamo', 'estado', 'pagos', 'created_at'
+        ],
+        deudas_terceros: [
+            'id', 'tercero_id', 'proyecto_id', 'empresa_id', 'monto_original',
+            'monto_pendiente', 'fecha_deuda', 'estado', 'descripcion', 'pagos', 'created_at'
+        ]
+    };
+
+    const allowedFields = tableFields[tabla] || tableFields.transacciones;
 
     const result = {};
     for (const field of allowedFields) {
@@ -142,8 +159,10 @@ function prepareForSupabase(data) {
         }
     }
 
-    // Set sincronizado to true for Supabase
-    result.sincronizado = true;
+    // Set sincronizado to true for transacciones
+    if (tabla === 'transacciones') {
+        result.sincronizado = true;
+    }
 
     return result;
 }
@@ -263,11 +282,107 @@ export async function forceSync() {
     return await processSyncQueue();
 }
 
+// ============== DEUDAS CAJAS (Inter-box debts) ==============
+
+// Create inter-box debt with sync support
+export async function createDeudaCajas(deudaData) {
+    const id = generateUUID();
+    const now = new Date().toISOString();
+
+    const deuda = {
+        id,
+        ...deudaData,
+        pagos: deudaData.pagos || [],
+        created_at: now
+    };
+
+    // Save locally
+    await db.deudas_cajas.add(deuda);
+
+    // Add to sync queue
+    await addToSyncQueue('deudas_cajas', 'INSERT', deuda);
+
+    // Try to sync immediately if online
+    if (navigator.onLine) {
+        await processSyncQueue();
+    }
+
+    return deuda;
+}
+
+// Update inter-box debt with sync support
+export async function updateDeudaCajas(id, updateData) {
+    const deuda = await db.deudas_cajas.get(id);
+    if (!deuda) return null;
+
+    const updatedDeuda = { ...deuda, ...updateData };
+    await db.deudas_cajas.update(id, updateData);
+
+    // Add to sync queue
+    await addToSyncQueue('deudas_cajas', 'UPDATE', updatedDeuda);
+
+    if (navigator.onLine) {
+        await processSyncQueue();
+    }
+
+    return updatedDeuda;
+}
+
+// ============== DEUDAS TERCEROS (Supplier debts) ==============
+
+// Create supplier debt with sync support
+export async function createDeudaTerceros(deudaData) {
+    const id = generateUUID();
+    const now = new Date().toISOString();
+
+    const deuda = {
+        id,
+        ...deudaData,
+        pagos: deudaData.pagos || [],
+        created_at: now
+    };
+
+    // Save locally
+    await db.deudas_terceros.add(deuda);
+
+    // Add to sync queue
+    await addToSyncQueue('deudas_terceros', 'INSERT', deuda);
+
+    // Try to sync immediately if online
+    if (navigator.onLine) {
+        await processSyncQueue();
+    }
+
+    return deuda;
+}
+
+// Update supplier debt with sync support
+export async function updateDeudaTerceros(id, updateData) {
+    const deuda = await db.deudas_terceros.get(id);
+    if (!deuda) return null;
+
+    const updatedDeuda = { ...deuda, ...updateData };
+    await db.deudas_terceros.update(id, updateData);
+
+    // Add to sync queue
+    await addToSyncQueue('deudas_terceros', 'UPDATE', updatedDeuda);
+
+    if (navigator.onLine) {
+        await processSyncQueue();
+    }
+
+    return updatedDeuda;
+}
+
 export default {
     createTransaction,
     getTransactions,
     getPendingSyncCount,
     processSyncQueue,
     getIntercajaDebts,
-    forceSync
+    forceSync,
+    createDeudaCajas,
+    updateDeudaCajas,
+    createDeudaTerceros,
+    updateDeudaTerceros
 };

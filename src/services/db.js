@@ -89,6 +89,24 @@ export async function syncFromSupabase() {
         const { data: transacciones, error: transaccionesError } = await supabase.from('transacciones').select('*');
         if (transaccionesError) throw transaccionesError;
 
+        // Fetch deudas_cajas (inter-box debts)
+        let deudasCajas = [];
+        try {
+            const { data, error } = await supabase.from('deudas_cajas').select('*');
+            if (!error) deudasCajas = data || [];
+        } catch (e) {
+            console.log('⚠️ deudas_cajas table might not exist in Supabase yet');
+        }
+
+        // Fetch deudas_terceros (supplier debts)
+        let deudasTerceros = [];
+        try {
+            const { data, error } = await supabase.from('deudas_terceros').select('*');
+            if (!error) deudasTerceros = data || [];
+        } catch (e) {
+            console.log('⚠️ deudas_terceros table might not exist in Supabase yet');
+        }
+
         // Clear and update local DB with Supabase data
         await db.empresas.clear();
         await db.cajas.clear();
@@ -122,6 +140,20 @@ export async function syncFromSupabase() {
 
             // Recalculate caja balances from transactions
             await recalculateCajaBalances();
+        }
+
+        // Sync deudas_cajas
+        if (deudasCajas.length > 0) {
+            await db.deudas_cajas.clear();
+            await db.deudas_cajas.bulkAdd(deudasCajas);
+            console.log(`✅ Synced ${deudasCajas.length} deudas_cajas`);
+        }
+
+        // Sync deudas_terceros
+        if (deudasTerceros.length > 0) {
+            await db.deudas_terceros.clear();
+            await db.deudas_terceros.bulkAdd(deudasTerceros);
+            console.log(`✅ Synced ${deudasTerceros.length} deudas_terceros`);
         }
 
         console.log('✅ Data sync from Supabase complete!');
