@@ -213,12 +213,12 @@ export default function ReportsPanel() {
         return filtered;
     }, [transacciones, searchTerm, dateFrom, dateTo, filterTipo, filterCaja, filterProyecto, filterTercero, sortField, sortDirection]);
 
-    // Calculate provider balances
+    // Calculate provider balances (exclude debt payments to avoid double counting)
     const providerBalances = useMemo(() => {
         const balances = {};
 
         transacciones
-            .filter(t => t.tercero_id && t.tipo_movimiento === 'EGRESO')
+            .filter(t => t.tercero_id && t.tipo_movimiento === 'EGRESO' && t.categoria !== 'Pago Deuda')
             .forEach(t => {
                 if (!balances[t.tercero_id]) {
                     balances[t.tercero_id] = {

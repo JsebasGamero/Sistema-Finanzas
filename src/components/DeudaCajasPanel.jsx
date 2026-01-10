@@ -13,6 +13,7 @@ import {
     X
 } from 'lucide-react';
 import { db, generateUUID } from '../services/db';
+import { addToSyncQueue, processSyncQueue } from '../services/syncService';
 
 export default function DeudaCajasPanel({ onDebtChanged }) {
     const [deudas, setDeudas] = useState([]);
@@ -141,6 +142,16 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
             return;
         }
 
+        // Check if debtor caja has enough balance
+        const cajaDeudora = cajas.find(c => c.id === deuda.caja_deudora_id);
+        if (cajaDeudora && cajaDeudora.saldo_actual < amount) {
+            const confirmar = confirm(
+                `La caja deudora "${cajaDeudora.nombre}" solo tiene ${formatMoney(cajaDeudora.saldo_actual)}. ` +
+                `¿Deseas continuar con el pago de ${formatMoney(amount)}? El saldo quedará negativo.`
+            );
+            if (!confirmar) return;
+        }
+
         const newMontoPendiente = deuda.monto_pendiente - amount;
         const newEstado = newMontoPendiente === 0 ? 'PAGADA' : 'PARCIAL';
         const pagos = [...(deuda.pagos || []), {
@@ -149,11 +160,77 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
         }];
 
         try {
+            // 1. Update the debt
             await db.deudas_cajas.update(deudaId, {
                 monto_pendiente: newMontoPendiente,
                 estado: newEstado,
                 pagos
             });
+
+            // 2. Create TRANSFERENCIA transaction (from debtor to creditor)
+            const transaccion = {
+                id: generateUUID(),
+                fecha: new Date().toISOString().split('T')[0],
+                descripcion: `Pago deuda: ${getCajaName(deuda.caja_deudora_id)} → ${getCajaName(deuda.caja_acreedora_id)}`,
+                monto: amount,
+                tipo_movimiento: 'TRANSFERENCIA',
+                categoria: 'Pago Préstamo',
+                proyecto_id: null,
+                caja_origen_id: deuda.caja_deudora_id,
+                caja_destino_id: deuda.caja_acreedora_id,
+                tercero_id: null,
+                sincronizado: false,
+                created_at: new Date().toISOString()
+            };
+
+            await db.transacciones.add(transaccion);
+
+            // Add to sync queue for Supabase
+            await addToSyncQueue('transacciones', 'INSERT', transaccion);
+
+            // Try to sync immediately if online, and WAIT for it to complete
+            if (navigator.onLine) {
+                try {
+                    await processSyncQueue();
+                    // Update local transaction to show as synced
+                    await db.transacciones.update(transaccion.id, { sincronizado: true });
+                } catch (err) {
+                    console.log('Sync error (will retry later):', err);
+                }
+            }
+
+            // 3. Update debtor caja balance (deduct) and sync
+            if (deuda.caja_deudora_id) {
+                const cajaOrigen = await db.cajas.get(deuda.caja_deudora_id);
+                if (cajaOrigen) {
+                    const nuevoSaldoOrigen = (cajaOrigen.saldo_actual || 0) - amount;
+                    await db.cajas.update(deuda.caja_deudora_id, { saldo_actual: nuevoSaldoOrigen });
+                    // Sync to Supabase
+                    const updatedCajaOrigen = { ...cajaOrigen, saldo_actual: nuevoSaldoOrigen };
+                    await addToSyncQueue('cajas', 'UPDATE', updatedCajaOrigen);
+                }
+            }
+
+            // 4. Update creditor caja balance (add) and sync
+            if (deuda.caja_acreedora_id) {
+                const cajaDestino = await db.cajas.get(deuda.caja_acreedora_id);
+                if (cajaDestino) {
+                    const nuevoSaldoDestino = (cajaDestino.saldo_actual || 0) + amount;
+                    await db.cajas.update(deuda.caja_acreedora_id, { saldo_actual: nuevoSaldoDestino });
+                    // Sync to Supabase
+                    const updatedCajaDestino = { ...cajaDestino, saldo_actual: nuevoSaldoDestino };
+                    await addToSyncQueue('cajas', 'UPDATE', updatedCajaDestino);
+                }
+            }
+
+            // 5. Sync caja updates immediately if online
+            if (navigator.onLine) {
+                await processSyncQueue();
+            }
+
+            // 6. Reload cajas to update local state
+            const cajasActualizadas = await db.cajas.toArray();
+            setCajas(cajasActualizadas);
 
             setDeudas(deudas.map(d =>
                 d.id === deudaId
@@ -165,6 +242,7 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
             onDebtChanged?.();
         } catch (error) {
             console.error('Error processing payment:', error);
+            alert('Error al procesar el pago');
         }
     }
 

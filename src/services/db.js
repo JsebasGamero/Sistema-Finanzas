@@ -138,8 +138,8 @@ export async function syncFromSupabase() {
             await db.transacciones.bulkAdd(transacciones);
             console.log(`✅ Synced ${transacciones.length} transacciones`);
 
-            // Recalculate caja balances from transactions
-            await recalculateCajaBalances();
+            // NOTE: We trust the saldo_actual from Supabase.
+            // Don't recalculate balances from transactions as it would lose initial balances set by user.
         }
 
         // Sync deudas_cajas

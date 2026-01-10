@@ -138,7 +138,22 @@ function prepareForSupabase(data, tabla = 'transacciones') {
         transacciones: [
             'id', 'fecha', 'descripcion', 'monto', 'tipo_movimiento', 'categoria',
             'proyecto_id', 'caja_origen_id', 'caja_destino_id', 'tercero_id',
-            'soporte_url', 'sincronizado', 'device_id', 'empresa_id', 'created_at'
+            'soporte_url', 'sincronizado', 'device_id', 'created_at'
+        ],
+        empresas: [
+            'id', 'nombre', 'nit', 'direccion', 'telefono', 'created_at', 'updated_at'
+        ],
+        cajas: [
+            'id', 'nombre', 'tipo', 'empresa_id', 'saldo_actual',
+            'banco_nombre', 'numero_cuenta', 'created_at', 'updated_at'
+        ],
+        proyectos: [
+            'id', 'nombre', 'empresa_id', 'presupuesto_estimado', 'estado',
+            'fecha_inicio', 'fecha_fin', 'descripcion', 'created_at', 'updated_at'
+        ],
+        terceros: [
+            'id', 'nombre', 'tipo', 'nit_cedula', 'telefono', 'email',
+            'direccion', 'created_at', 'updated_at'
         ],
         deudas_cajas: [
             'id', 'caja_deudora_id', 'caja_acreedora_id', 'monto_original',

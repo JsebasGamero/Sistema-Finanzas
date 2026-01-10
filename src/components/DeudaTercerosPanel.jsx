@@ -17,6 +17,7 @@ import {
     FileText
 } from 'lucide-react';
 import { db, generateUUID } from '../services/db';
+import { addToSyncQueue, processSyncQueue } from '../services/syncService';
 
 export default function DeudaTercerosPanel({ onDebtChanged }) {
     const [deudas, setDeudas] = useState([]);
@@ -199,6 +200,11 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
             return;
         }
 
+        if (!paymentData.cajaId) {
+            alert('Debes seleccionar de qué caja sale el abono');
+            return;
+        }
+
         const deuda = deudas.find(d => d.id === deudaId);
         if (!deuda) return;
 
@@ -207,27 +213,94 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
             return;
         }
 
+        // Check caja has enough balance
+        const cajaSeleccionada = cajas.find(c => c.id === paymentData.cajaId);
+        if (cajaSeleccionada && cajaSeleccionada.saldo_actual < amount) {
+            const confirmar = confirm(
+                `La caja "${cajaSeleccionada.nombre}" solo tiene ${formatMoney(cajaSeleccionada.saldo_actual)}. ` +
+                `¿Deseas continuar con el abono de ${formatMoney(amount)}? El saldo quedará negativo.`
+            );
+            if (!confirmar) return;
+        }
+
         const newMontoPendiente = deuda.monto_pendiente - amount;
         const newEstado = newMontoPendiente === 0 ? 'PAGADA' : 'PARCIAL';
         const pagos = [...(deuda.pagos || []), {
             monto: amount,
             fecha: new Date().toISOString(),
             descripcion: paymentData.descripcion || 'Abono',
-            caja_id: paymentData.cajaId || null
+            caja_id: paymentData.cajaId
         }];
 
         try {
+            // 1. Update the debt
             await db.deudas_terceros.update(deudaId, {
                 monto_pendiente: newMontoPendiente,
                 estado: newEstado,
                 pagos
             });
 
+            // 2. Create EGRESO transaction (deduct from caja)
+            const transaccion = {
+                id: generateUUID(),
+                fecha: new Date().toISOString().split('T')[0],
+                descripcion: `Abono deuda: ${getTerceroName(deuda.tercero_id)} - ${paymentData.descripcion || 'Pago'}`,
+                monto: amount,
+                tipo_movimiento: 'EGRESO',
+                categoria: 'Pago Deuda',
+                proyecto_id: deuda.proyecto_id || null,
+                caja_origen_id: paymentData.cajaId,
+                caja_destino_id: null,
+                tercero_id: deuda.tercero_id,
+                empresa_id: deuda.empresa_id || null,
+                sincronizado: false,
+                created_at: new Date().toISOString()
+            };
+
+            await db.transacciones.add(transaccion);
+
+            // Add to sync queue for Supabase
+            await addToSyncQueue('transacciones', 'INSERT', transaccion);
+
+            // Try to sync immediately if online, and WAIT for it to complete
+            if (navigator.onLine) {
+                try {
+                    await processSyncQueue();
+                    // Update local transaction to show as synced
+                    await db.transacciones.update(transaccion.id, { sincronizado: true });
+                } catch (err) {
+                    console.log('Sync error (will retry later):', err);
+                }
+            }
+
+            // 3. Update caja balance (deduct) and sync to Supabase
+            const caja = await db.cajas.get(paymentData.cajaId);
+            if (caja) {
+                const nuevoSaldo = (caja.saldo_actual || 0) - amount;
+                await db.cajas.update(paymentData.cajaId, { saldo_actual: nuevoSaldo });
+
+                // Sync caja balance update to Supabase
+                const updatedCaja = { ...caja, saldo_actual: nuevoSaldo };
+                await addToSyncQueue('cajas', 'UPDATE', updatedCaja);
+
+                // Sync immediately if online
+                if (navigator.onLine) {
+                    await processSyncQueue();
+                }
+
+                // Update local state
+                setCajas(cajas.map(c =>
+                    c.id === paymentData.cajaId ? { ...c, saldo_actual: nuevoSaldo } : c
+                ));
+            }
+
+            // Update local deuda state
             setDeudas(deudas.map(d =>
                 d.id === deudaId
                     ? { ...d, monto_pendiente: newMontoPendiente, estado: newEstado, pagos }
                     : d
             ));
+
             setPaymentData({ monto: '', descripcion: '', cajaId: '' });
             setShowPaymentForm(null);
             onDebtChanged?.();
@@ -450,7 +523,7 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
                             >
                                 <div className="flex items-center gap-3">
                                     <div className={`p-2 rounded-lg ${deuda.estado === 'PAGADA' ? 'bg-green-500/20' :
-                                            deuda.estado === 'PARCIAL' ? 'bg-blue-500/20' : 'bg-red-500/20'
+                                        deuda.estado === 'PARCIAL' ? 'bg-blue-500/20' : 'bg-red-500/20'
                                         }`}>
                                         {deuda.estado === 'PAGADA' ? (
                                             <CheckCircle size={18} className="text-green-400" />
@@ -537,10 +610,11 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
                                                         value={paymentData.cajaId}
                                                         onChange={(e) => setPaymentData({ ...paymentData, cajaId: e.target.value })}
                                                         className="input-field flex-1"
+                                                        required
                                                     >
-                                                        <option value="">Caja (opcional)</option>
+                                                        <option value="">Seleccionar Caja *</option>
                                                         {cajas.map(c => (
-                                                            <option key={c.id} value={c.id}>{c.nombre}</option>
+                                                            <option key={c.id} value={c.id}>{c.nombre} ({formatMoney(c.saldo_actual)})</option>
                                                         ))}
                                                     </select>
                                                 </div>

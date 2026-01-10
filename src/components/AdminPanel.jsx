@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { db, generateUUID } from '../services/db';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
+import { addToSyncQueue, processSyncQueue } from '../services/syncService';
 import ConfirmModal from './ConfirmModal';
 
 // Entity configurations
@@ -145,12 +146,12 @@ export default function AdminPanel() {
 
             if (editingItem) {
                 // Update existing
-                const updated = { ...formData, updated_at: now };
-                await db[activeEntity].update(editingItem.id, updated);
+                const updated = { ...editingItem, ...formData, updated_at: now };
+                await db[activeEntity].update(editingItem.id, formData);
 
-                if (isSupabaseConfigured()) {
-                    await supabase.from(activeEntity).update(updated).eq('id', editingItem.id);
-                }
+                // Add to sync queue for Supabase
+                await addToSyncQueue(activeEntity, 'UPDATE', updated);
+                console.log(`📝 Updated ${activeEntity}:`, updated);
             } else {
                 // Create new
                 const newItem = {
@@ -173,9 +174,14 @@ export default function AdminPanel() {
 
                 await db[activeEntity].add(newItem);
 
-                if (isSupabaseConfigured()) {
-                    await supabase.from(activeEntity).insert(newItem);
-                }
+                // Add to sync queue for Supabase
+                await addToSyncQueue(activeEntity, 'INSERT', newItem);
+                console.log(`✨ Created ${activeEntity}:`, newItem);
+            }
+
+            // Try to sync immediately if online
+            if (navigator.onLine) {
+                processSyncQueue().catch(err => console.log('Sync error:', err));
             }
 
             setShowForm(false);
