@@ -1,8 +1,9 @@
 // TransactionEditModal - Modal to edit existing transactions
 import { useState, useEffect } from 'react';
 import { X, Save, ArrowRight, ArrowDownLeft, ArrowUpRight, ArrowLeftRight } from 'lucide-react';
-import { db } from '../services/db';
-
+import { db, generateUUID } from '../services/db';
+import { addToSyncQueue, processSyncQueue } from '../services/syncService';
+import AutocompleteInput from './AutocompleteInput';
 export default function TransactionEditModal({
     isOpen,
     transaction,
@@ -48,6 +49,42 @@ export default function TransactionEditModal({
         setCajas(cajasData);
         setProyectos(proyectosData);
         setTerceros(tercerosData);
+    }
+
+    // Format number with thousand separators (dots) for display in input
+    function formatDisplayNumber(value) {
+        if (!value && value !== 0) return '';
+        const numStr = String(value).replace(/\D/g, '');
+        if (!numStr) return '';
+        return new Intl.NumberFormat('es-CO').format(parseInt(numStr, 10));
+    }
+
+    // Parse formatted number back to raw number string
+    function parseFormattedNumber(formattedValue) {
+        return formattedValue.replace(/\./g, '');
+    }
+
+    // Create a new tercero on the fly
+    async function createNewTercero(nombre) {
+        const newTercero = {
+            id: generateUUID(),
+            nombre: nombre,
+            tipo: 'Proveedor',
+            nit_cedula: '',
+            telefono: '',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        };
+
+        await db.terceros.add(newTercero);
+        await addToSyncQueue('terceros', 'INSERT', newTercero);
+
+        if (navigator.onLine) {
+            processSyncQueue().catch(err => console.log('Sync error:', err));
+        }
+
+        setTerceros(prev => [...prev, newTercero]);
+        return newTercero;
     }
 
     async function handleSubmit(e) {
@@ -112,12 +149,13 @@ export default function TransactionEditModal({
                         <div className="relative">
                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-xl">$</span>
                             <input
-                                type="number"
-                                value={formData.monto || ''}
-                                onChange={(e) => setFormData({ ...formData, monto: e.target.value })}
+                                type="text"
+                                value={formatDisplayNumber(formData.monto)}
+                                onChange={(e) => setFormData({ ...formData, monto: parseFormattedNumber(e.target.value) })}
                                 className="input-field text-xl font-bold"
                                 style={{ paddingLeft: '48px' }}
                                 required
+                                inputMode="numeric"
                             />
                         </div>
                     </div>
@@ -210,16 +248,17 @@ export default function TransactionEditModal({
                     {tipo === 'EGRESO' && (
                         <div>
                             <label className="label">Proveedor / Beneficiario</label>
-                            <select
+                            <AutocompleteInput
+                                items={terceros}
                                 value={formData.tercero_id || ''}
-                                onChange={(e) => setFormData({ ...formData, tercero_id: e.target.value || null })}
-                                className="input-field"
-                            >
-                                <option value="">Ninguno</option>
-                                {terceros.map((t) => (
-                                    <option key={t.id} value={t.id}>{t.nombre}</option>
-                                ))}
-                            </select>
+                                onChange={(val) => setFormData({ ...formData, tercero_id: val || null })}
+                                onCreateNew={createNewTercero}
+                                placeholder="Escribir o seleccionar..."
+                                displayKey="nombre"
+                                valueKey="id"
+                                createLabel="Crear proveedor:"
+                                emptyMessage="Sin proveedores"
+                            />
                         </div>
                     )}
 

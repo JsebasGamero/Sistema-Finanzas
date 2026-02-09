@@ -18,8 +18,6 @@ import syncService from '../services/syncService';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
 import ConfirmModal from './ConfirmModal';
 import TransactionEditModal from './TransactionEditModal';
-import DeudaCajasPanel from './DeudaCajasPanel';
-import DeudaTercerosPanel from './DeudaTercerosPanel';
 
 export default function ProjectDashboard() {
     const [stats, setStats] = useState({
@@ -435,15 +433,7 @@ export default function ProjectDashboard() {
                 </div>
             )}
 
-            {/* Inter-caja debts - Full Management Panel */}
-            <div className="card">
-                <DeudaCajasPanel onDebtChanged={loadStats} />
-            </div>
 
-            {/* Supplier/Third-party debts - Cuentas por Pagar */}
-            <div className="card">
-                <DeudaTercerosPanel onDebtChanged={loadStats} />
-            </div>
 
             {/* Recent transactions */}
             <div className="card">

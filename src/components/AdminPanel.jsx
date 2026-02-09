@@ -202,6 +202,19 @@ export default function AdminPanel() {
         }).format(amount || 0);
     }
 
+    // Format number with thousand separators (dots) for display in input
+    function formatDisplayNumber(value) {
+        if (!value && value !== 0) return '';
+        const numStr = String(value).replace(/\D/g, '');
+        if (!numStr) return '';
+        return new Intl.NumberFormat('es-CO').format(parseInt(numStr, 10));
+    }
+
+    // Parse formatted number back to raw number string
+    function parseFormattedNumber(formattedValue) {
+        return formattedValue.replace(/\./g, '');
+    }
+
     // Main menu view
     if (!activeEntity) {
         return (
@@ -276,11 +289,12 @@ export default function AdminPanel() {
 
                             {field.type === 'number' && (
                                 <input
-                                    type="number"
-                                    value={formData[field.key] || ''}
-                                    onChange={(e) => setFormData({ ...formData, [field.key]: parseFloat(e.target.value) || 0 })}
+                                    type="text"
+                                    value={formatDisplayNumber(formData[field.key])}
+                                    onChange={(e) => setFormData({ ...formData, [field.key]: parseFormattedNumber(e.target.value) })}
                                     className="input-field"
                                     required={field.required}
+                                    inputMode="numeric"
                                 />
                             )}
 

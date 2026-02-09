@@ -1,11 +1,17 @@
 // TransactionForm component - Form for income/expense/transfers with confirmation
 import { useState, useEffect } from 'react';
-import { Save, Camera, ArrowRight, Check, ArrowDownLeft, ArrowUpRight, ArrowLeftRight } from 'lucide-react';
-import { db } from '../services/db';
-import syncService from '../services/syncService';
+import { Save, Camera, ArrowRight, Check, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, CreditCard, Receipt } from 'lucide-react';
+import { db, generateUUID } from '../services/db';
+import syncService, { addToSyncQueue, processSyncQueue } from '../services/syncService';
 import ConfirmModal from './ConfirmModal';
+import DeudaCajasPanel from './DeudaCajasPanel';
+import DeudaTercerosPanel from './DeudaTercerosPanel';
+import AutocompleteInput from './AutocompleteInput';
 
 export default function TransactionForm({ onTransactionAdded }) {
+    // Section selector: 'transaccion' or 'deudas'
+    const [activeSection, setActiveSection] = useState('transaccion');
+
     const [tipo, setTipo] = useState('EGRESO');
     const [monto, setMonto] = useState('');
     const [descripcion, setDescripcion] = useState('');
@@ -73,6 +79,47 @@ export default function TransactionForm({ onTransactionAdded }) {
             minimumFractionDigits: 0,
             maximumFractionDigits: 0
         }).format(amount || 0);
+    }
+
+    // Format number with thousand separators (dots) for display in input
+    function formatDisplayNumber(value) {
+        if (!value && value !== 0) return '';
+        const numStr = String(value).replace(/\D/g, '');
+        if (!numStr) return '';
+        return new Intl.NumberFormat('es-CO').format(parseInt(numStr, 10));
+    }
+
+    // Parse formatted number back to raw number string
+    function parseFormattedNumber(formattedValue) {
+        return formattedValue.replace(/\./g, '');
+    }
+
+    // Create a new tercero on the fly
+    async function createNewTercero(nombre) {
+        const newTercero = {
+            id: generateUUID(),
+            nombre: nombre,
+            tipo: 'Proveedor', // Default type
+            nit_cedula: '',
+            telefono: '',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        };
+
+        await db.terceros.add(newTercero);
+
+        // Add to sync queue for Supabase
+        await addToSyncQueue('terceros', 'INSERT', newTercero);
+
+        // Try to sync immediately if online
+        if (navigator.onLine) {
+            processSyncQueue().catch(err => console.log('Sync error:', err));
+        }
+
+        // Update local state
+        setTerceros(prev => [...prev, newTercero]);
+
+        return newTercero;
     }
 
     function handleSubmit(e) {
@@ -199,242 +246,289 @@ export default function TransactionForm({ onTransactionAdded }) {
 
     return (
         <div className="max-w-lg mx-auto">
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                {tipo === 'INGRESO' && <><ArrowDownLeft size={22} className="text-green-500" /> Nuevo Ingreso</>}
-                {tipo === 'EGRESO' && <><ArrowUpRight size={22} className="text-red-500" /> Nuevo Egreso</>}
-                {tipo === 'TRANSFERENCIA' && <><ArrowLeftRight size={22} className="text-blue-500" /> Nueva Transferencia</>}
-            </h2>
-
-            {/* Type selector */}
-            <div className="grid grid-cols-3 gap-2 mb-6">
-                {['INGRESO', 'EGRESO', 'TRANSFERENCIA'].map((t) => (
-                    <button
-                        key={t}
-                        type="button"
-                        onClick={() => setTipo(t)}
-                        className={`py-3 px-2 rounded-lg font-medium text-sm transition-all
-              ${tipo === t
-                                ? t === 'INGRESO'
-                                    ? 'bg-green-500 text-white'
-                                    : t === 'EGRESO'
-                                        ? 'bg-red-500 text-white'
-                                        : 'bg-blue-500 text-white'
-                                : 'bg-card text-gray-400'
-                            }`}
-                    >
-                        {t === 'INGRESO' && '+ Ingreso'}
-                        {t === 'EGRESO' && '- Egreso'}
-                        {t === 'TRANSFERENCIA' && '↔ Transfer'}
-                    </button>
-                ))}
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-                {/* Amount */}
-                <div>
-                    <label className="label">Monto *</label>
-                    <div className="relative">
-                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-2xl">$</span>
-                        <input
-                            type="number"
-                            value={monto}
-                            onChange={(e) => setMonto(e.target.value)}
-                            className="input-field text-2xl font-bold"
-                            style={{ paddingLeft: '48px' }}
-                            placeholder="0"
-                            required
-                            inputMode="decimal"
-                        />
-                    </div>
-                </div>
-
-                {/* Date */}
-                <div>
-                    <label className="label">Fecha</label>
-                    <input
-                        type="date"
-                        value={fecha}
-                        onChange={(e) => setFecha(e.target.value)}
-                        className="input-field"
-                    />
-                </div>
-
-                {/* Empresa */}
-                <div>
-                    <label className="label">Empresa</label>
-                    <select
-                        value={empresaId}
-                        onChange={(e) => {
-                            setEmpresaId(e.target.value);
-                            setCajaOrigenId(''); // Reset caja when empresa changes
-                            setCajaDestinoId('');
-                        }}
-                        className="input-field"
-                    >
-                        <option value="">Todas las empresas</option>
-                        {empresas.map((empresa) => (
-                            <option key={empresa.id} value={empresa.id}>
-                                {empresa.nombre}
-                            </option>
-                        ))}
-                    </select>
-                </div>
-
-                {/* Caja Origen */}
-                <div>
-                    <label className="label">
-                        {tipo === 'TRANSFERENCIA' ? 'Caja Origen (De donde sale)' : 'Caja'} *
-                    </label>
-                    <select
-                        value={cajaOrigenId}
-                        onChange={(e) => setCajaOrigenId(e.target.value)}
-                        className="input-field"
-                        required
-                    >
-                        <option value="">Seleccionar caja...</option>
-                        {cajasFiltradas.map((caja) => (
-                            <option key={caja.id} value={caja.id}>
-                                {caja.nombre} ({caja.tipo})
-                            </option>
-                        ))}
-                    </select>
-                </div>
-
-                {/* Caja Destino - Only for transfers */}
-                {tipo === 'TRANSFERENCIA' && (
-                    <div className="relative">
-                        <div className="absolute left-1/2 -translate-x-1/2 -top-4 bg-primary p-1">
-                            <ArrowRight className="text-gold" size={20} />
-                        </div>
-                        <label className="label">Caja Destino (A donde va)</label>
-                        <select
-                            value={cajaDestinoId}
-                            onChange={(e) => setCajaDestinoId(e.target.value)}
-                            className="input-field"
-                            required={tipo === 'TRANSFERENCIA'}
-                        >
-                            <option value="">Seleccionar caja...</option>
-                            {cajas.filter(c => c.id !== cajaOrigenId).map((caja) => {
-                                const empresaCaja = empresas.find(e => e.id === caja.empresa_id);
-                                return (
-                                    <option key={caja.id} value={caja.id}>
-                                        {caja.nombre} ({caja.tipo}) - {empresaCaja?.nombre || 'Sin empresa'}
-                                    </option>
-                                );
-                            })}
-                        </select>
-                    </div>
-                )}
-
-                {/* Category */}
-                <div>
-                    <label className="label">Categoría</label>
-                    <select
-                        value={categoria}
-                        onChange={(e) => setCategoria(e.target.value)}
-                        className="input-field"
-                    >
-                        <option value="">Seleccionar categoría...</option>
-                        {categorias.map((cat) => (
-                            <option key={cat} value={cat}>{cat}</option>
-                        ))}
-                    </select>
-                </div>
-
-                {/* Project */}
-                <div>
-                    <label className="label">Proyecto / Obra</label>
-                    <select
-                        value={proyectoId}
-                        onChange={(e) => setProyectoId(e.target.value)}
-                        className="input-field"
-                    >
-                        <option value="">Sin proyecto específico</option>
-                        {proyectos.map((proyecto) => (
-                            <option key={proyecto.id} value={proyecto.id}>
-                                {proyecto.nombre}
-                            </option>
-                        ))}
-                    </select>
-                </div>
-
-                {/* Third party */}
-                {tipo === 'EGRESO' && (
-                    <div>
-                        <label className="label">Proveedor / Beneficiario</label>
-                        <select
-                            value={terceroId}
-                            onChange={(e) => setTerceroId(e.target.value)}
-                            className="input-field"
-                        >
-                            <option value="">Ninguno</option>
-                            {terceros.map((tercero) => (
-                                <option key={tercero.id} value={tercero.id}>
-                                    {tercero.nombre} ({tercero.tipo})
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                )}
-
-                {/* Description */}
-                <div>
-                    <label className="label">Descripción</label>
-                    <textarea
-                        value={descripcion}
-                        onChange={(e) => setDescripcion(e.target.value)}
-                        className="input-field min-h-[80px] resize-none"
-                        placeholder="Detalle del movimiento..."
-                    />
-                </div>
-
-                {/* Photo button */}
+            {/* Main Section Selector */}
+            <div className="grid grid-cols-2 gap-3 mb-6">
                 <button
                     type="button"
-                    className="w-full py-3 border-2 border-dashed border-gray-600 rounded-lg text-gray-400 flex items-center justify-center gap-2 hover:border-gold hover:text-gold transition-colors"
+                    onClick={() => setActiveSection('transaccion')}
+                    className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2
+                        ${activeSection === 'transaccion'
+                            ? 'bg-gold text-white shadow-lg shadow-gold/20'
+                            : 'bg-card text-gray-400 hover:text-white'
+                        }`}
                 >
-                    <Camera size={20} />
-                    Agregar foto del soporte
+                    <Receipt size={18} />
+                    Transacción
                 </button>
-
-                {/* Submit button */}
                 <button
-                    type="submit"
-                    disabled={saving || !monto || !cajaOrigenId}
-                    className={`btn-primary w-full flex items-center justify-center gap-2 text-lg
-            ${saved ? 'bg-green-500' : ''}`}
+                    type="button"
+                    onClick={() => setActiveSection('deudas')}
+                    className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2
+                        ${activeSection === 'deudas'
+                            ? 'bg-gold text-white shadow-lg shadow-gold/20'
+                            : 'bg-card text-gray-400 hover:text-white'
+                        }`}
                 >
-                    {saving ? (
-                        <>
-                            <RefreshCw size={20} className="animate-spin" />
-                            Guardando...
-                        </>
-                    ) : saved ? (
-                        <>
-                            <Check size={20} />
-                            ¡Guardado!
-                        </>
-                    ) : (
-                        <>
-                            <Save size={20} />
-                            Guardar {tipo.toLowerCase()}
-                        </>
-                    )}
+                    <CreditCard size={18} />
+                    Deudas
                 </button>
-            </form>
+            </div>
 
-            {/* Confirmation Modal */}
-            <ConfirmModal
-                isOpen={showConfirm}
-                title={`Confirmar ${tipo.toLowerCase()}`}
-                message="¿Deseas registrar este movimiento?"
-                details={getConfirmDetails()}
-                confirmText="Sí, registrar"
-                cancelText="Cancelar"
-                type={getConfirmType()}
-                onConfirm={handleConfirm}
-                onCancel={handleCancelConfirm}
-            />
+            {/* DEUDAS SECTION */}
+            {activeSection === 'deudas' && (
+                <div className="space-y-4">
+                    {/* Inter-caja debts - Préstamos entre cajas */}
+                    <div className="card">
+                        <DeudaCajasPanel />
+                    </div>
+
+                    {/* Supplier debts - Cuentas por Pagar */}
+                    <div className="card">
+                        <DeudaTercerosPanel />
+                    </div>
+                </div>
+            )}
+
+            {/* TRANSACCION SECTION */}
+            {activeSection === 'transaccion' && (
+                <>
+                    <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                        {tipo === 'INGRESO' && <><ArrowDownLeft size={22} className="text-green-500" /> Nuevo Ingreso</>}
+                        {tipo === 'EGRESO' && <><ArrowUpRight size={22} className="text-red-500" /> Nuevo Egreso</>}
+                        {tipo === 'TRANSFERENCIA' && <><ArrowLeftRight size={22} className="text-blue-500" /> Nueva Transferencia</>}
+                    </h2>
+
+                    {/* Type selector */}
+                    <div className="grid grid-cols-3 gap-2 mb-6">
+                        {['INGRESO', 'EGRESO', 'TRANSFERENCIA'].map((t) => (
+                            <button
+                                key={t}
+                                type="button"
+                                onClick={() => setTipo(t)}
+                                className={`py-3 px-2 rounded-lg font-medium text-sm transition-all
+              ${tipo === t
+                                        ? t === 'INGRESO'
+                                            ? 'bg-green-500 text-white'
+                                            : t === 'EGRESO'
+                                                ? 'bg-red-500 text-white'
+                                                : 'bg-blue-500 text-white'
+                                        : 'bg-card text-gray-400'
+                                    }`}
+                            >
+                                {t === 'INGRESO' && '+ Ingreso'}
+                                {t === 'EGRESO' && '- Egreso'}
+                                {t === 'TRANSFERENCIA' && '↔ Transfer'}
+                            </button>
+                        ))}
+                    </div>
+
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        {/* Amount */}
+                        <div>
+                            <label className="label">Monto *</label>
+                            <div className="relative">
+                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-2xl">$</span>
+                                <input
+                                    type="text"
+                                    value={formatDisplayNumber(monto)}
+                                    onChange={(e) => setMonto(parseFormattedNumber(e.target.value))}
+                                    className="input-field text-2xl font-bold"
+                                    style={{ paddingLeft: '48px' }}
+                                    placeholder="0"
+                                    required
+                                    inputMode="numeric"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Date */}
+                        <div>
+                            <label className="label">Fecha</label>
+                            <input
+                                type="date"
+                                value={fecha}
+                                onChange={(e) => setFecha(e.target.value)}
+                                className="input-field"
+                            />
+                        </div>
+
+                        {/* Empresa */}
+                        <div>
+                            <label className="label">Empresa</label>
+                            <select
+                                value={empresaId}
+                                onChange={(e) => {
+                                    setEmpresaId(e.target.value);
+                                    setCajaOrigenId(''); // Reset caja when empresa changes
+                                    setCajaDestinoId('');
+                                }}
+                                className="input-field"
+                            >
+                                <option value="">Todas las empresas</option>
+                                {empresas.map((empresa) => (
+                                    <option key={empresa.id} value={empresa.id}>
+                                        {empresa.nombre}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Caja Origen */}
+                        <div>
+                            <label className="label">
+                                {tipo === 'TRANSFERENCIA' ? 'Caja Origen (De donde sale)' : 'Caja'} *
+                            </label>
+                            <select
+                                value={cajaOrigenId}
+                                onChange={(e) => setCajaOrigenId(e.target.value)}
+                                className="input-field"
+                                required
+                            >
+                                <option value="">Seleccionar caja...</option>
+                                {cajasFiltradas.map((caja) => (
+                                    <option key={caja.id} value={caja.id}>
+                                        {caja.nombre} ({caja.tipo})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Caja Destino - Only for transfers */}
+                        {tipo === 'TRANSFERENCIA' && (
+                            <div className="relative">
+                                <div className="absolute left-1/2 -translate-x-1/2 -top-4 bg-primary p-1">
+                                    <ArrowRight className="text-gold" size={20} />
+                                </div>
+                                <label className="label">Caja Destino (A donde va)</label>
+                                <select
+                                    value={cajaDestinoId}
+                                    onChange={(e) => setCajaDestinoId(e.target.value)}
+                                    className="input-field"
+                                    required={tipo === 'TRANSFERENCIA'}
+                                >
+                                    <option value="">Seleccionar caja...</option>
+                                    {cajas.filter(c => c.id !== cajaOrigenId).map((caja) => {
+                                        const empresaCaja = empresas.find(e => e.id === caja.empresa_id);
+                                        return (
+                                            <option key={caja.id} value={caja.id}>
+                                                {caja.nombre} ({caja.tipo}) - {empresaCaja?.nombre || 'Sin empresa'}
+                                            </option>
+                                        );
+                                    })}
+                                </select>
+                            </div>
+                        )}
+
+                        {/* Category */}
+                        <div>
+                            <label className="label">Categoría</label>
+                            <select
+                                value={categoria}
+                                onChange={(e) => setCategoria(e.target.value)}
+                                className="input-field"
+                            >
+                                <option value="">Seleccionar categoría...</option>
+                                {categorias.map((cat) => (
+                                    <option key={cat} value={cat}>{cat}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Project */}
+                        <div>
+                            <label className="label">Proyecto / Obra</label>
+                            <select
+                                value={proyectoId}
+                                onChange={(e) => setProyectoId(e.target.value)}
+                                className="input-field"
+                            >
+                                <option value="">Sin proyecto específico</option>
+                                {proyectos.map((proyecto) => (
+                                    <option key={proyecto.id} value={proyecto.id}>
+                                        {proyecto.nombre}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Third party */}
+                        {tipo === 'EGRESO' && (
+                            <div>
+                                <label className="label">Proveedor / Beneficiario</label>
+                                <AutocompleteInput
+                                    items={terceros}
+                                    value={terceroId}
+                                    onChange={setTerceroId}
+                                    onCreateNew={createNewTercero}
+                                    placeholder="Escribir o seleccionar..."
+                                    displayKey="nombre"
+                                    valueKey="id"
+                                    createLabel="Crear proveedor:"
+                                    emptyMessage="Sin proveedores"
+                                />
+                            </div>
+                        )}
+
+                        {/* Description */}
+                        <div>
+                            <label className="label">Descripción</label>
+                            <textarea
+                                value={descripcion}
+                                onChange={(e) => setDescripcion(e.target.value)}
+                                className="input-field min-h-[80px] resize-none"
+                                placeholder="Detalle del movimiento..."
+                            />
+                        </div>
+
+                        {/* Photo button */}
+                        <button
+                            type="button"
+                            className="w-full py-3 border-2 border-dashed border-gray-600 rounded-lg text-gray-400 flex items-center justify-center gap-2 hover:border-gold hover:text-gold transition-colors"
+                        >
+                            <Camera size={20} />
+                            Agregar foto del soporte
+                        </button>
+
+                        {/* Submit button */}
+                        <button
+                            type="submit"
+                            disabled={saving || !monto || !cajaOrigenId}
+                            className={`btn-primary w-full flex items-center justify-center gap-2 text-lg
+            ${saved ? 'bg-green-500' : ''}`}
+                        >
+                            {saving ? (
+                                <>
+                                    <RefreshCw size={20} className="animate-spin" />
+                                    Guardando...
+                                </>
+                            ) : saved ? (
+                                <>
+                                    <Check size={20} />
+                                    ¡Guardado!
+                                </>
+                            ) : (
+                                <>
+                                    <Save size={20} />
+                                    Guardar {tipo.toLowerCase()}
+                                </>
+                            )}
+                        </button>
+                    </form>
+
+                    {/* Confirmation Modal */}
+                    <ConfirmModal
+                        isOpen={showConfirm}
+                        title={`Confirmar ${tipo.toLowerCase()}`}
+                        message="¿Deseas registrar este movimiento?"
+                        details={getConfirmDetails()}
+                        confirmText="Sí, registrar"
+                        cancelText="Cancelar"
+                        type={getConfirmType()}
+                        onConfirm={handleConfirm}
+                        onCancel={handleCancelConfirm}
+                    />
+                </>
+            )}
         </div>
     );
 }

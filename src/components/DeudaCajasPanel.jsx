@@ -78,6 +78,19 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
         return cajas.find(c => c.id === id)?.nombre || 'Desconocida';
     }
 
+    // Format number with thousand separators (dots) for display in input
+    function formatDisplayNumber(value) {
+        if (!value && value !== 0) return '';
+        const numStr = String(value).replace(/\D/g, '');
+        if (!numStr) return '';
+        return new Intl.NumberFormat('es-CO').format(parseInt(numStr, 10));
+    }
+
+    // Parse formatted number back to raw number string
+    function parseFormattedNumber(formattedValue) {
+        return formattedValue.replace(/\./g, '');
+    }
+
     // Group debts by status
     const debtsSummary = useMemo(() => {
         const pending = deudas.filter(d => d.estado === 'PENDIENTE');
@@ -337,13 +350,14 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
                         <div className="relative">
                             <DollarSign size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                             <input
-                                type="number"
-                                value={formData.monto}
-                                onChange={(e) => setFormData({ ...formData, monto: e.target.value })}
+                                type="text"
+                                value={formatDisplayNumber(formData.monto)}
+                                onChange={(e) => setFormData({ ...formData, monto: parseFormattedNumber(e.target.value) })}
                                 className="input-field"
                                 style={{ paddingLeft: '40px' }}
                                 placeholder="0"
                                 required
+                                inputMode="numeric"
                             />
                         </div>
                     </div>
@@ -427,11 +441,12 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
                                     {showPaymentForm === deuda.id ? (
                                         <div className="flex gap-2">
                                             <input
-                                                type="number"
-                                                value={paymentAmount}
-                                                onChange={(e) => setPaymentAmount(e.target.value)}
+                                                type="text"
+                                                value={formatDisplayNumber(paymentAmount)}
+                                                onChange={(e) => setPaymentAmount(parseFormattedNumber(e.target.value))}
                                                 className="input-field flex-1"
-                                                placeholder="Monto a abonar"
+                                                placeholder="Monto a pagar"
+                                                inputMode="numeric"
                                             />
                                             <button
                                                 onClick={() => handlePayment(deuda.id)}

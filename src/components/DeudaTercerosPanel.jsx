@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { db, generateUUID } from '../services/db';
 import { addToSyncQueue, processSyncQueue } from '../services/syncService';
+import AutocompleteInput from './AutocompleteInput';
 
 export default function DeudaTercerosPanel({ onDebtChanged }) {
     const [deudas, setDeudas] = useState([]);
@@ -111,6 +112,42 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
 
     function getEmpresaName(id) {
         return empresas.find(e => e.id === id)?.nombre || '-';
+    }
+
+    // Format number with thousand separators (dots) for display in input
+    function formatDisplayNumber(value) {
+        if (!value && value !== 0) return '';
+        const numStr = String(value).replace(/\D/g, '');
+        if (!numStr) return '';
+        return new Intl.NumberFormat('es-CO').format(parseInt(numStr, 10));
+    }
+
+    // Parse formatted number back to raw number string
+    function parseFormattedNumber(formattedValue) {
+        return formattedValue.replace(/\./g, '');
+    }
+
+    // Create a new tercero on the fly
+    async function createNewTercero(nombre) {
+        const newTercero = {
+            id: generateUUID(),
+            nombre: nombre,
+            tipo: 'Proveedor',
+            nit_cedula: '',
+            telefono: '',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        };
+
+        await db.terceros.add(newTercero);
+        await addToSyncQueue('terceros', 'INSERT', newTercero);
+
+        if (navigator.onLine) {
+            processSyncQueue().catch(err => console.log('Sync error:', err));
+        }
+
+        setTerceros(prev => [...prev, newTercero]);
+        return newTercero;
     }
 
     // Filter and group debts
@@ -417,17 +454,17 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
 
                     <div>
                         <label className="label">Proveedor / Tercero *</label>
-                        <select
+                        <AutocompleteInput
+                            items={terceros}
                             value={formData.terceroId}
-                            onChange={(e) => setFormData({ ...formData, terceroId: e.target.value })}
-                            className="input-field"
-                            required
-                        >
-                            <option value="">Seleccionar...</option>
-                            {terceros.map(t => (
-                                <option key={t.id} value={t.id}>{t.nombre} ({t.tipo})</option>
-                            ))}
-                        </select>
+                            onChange={(val) => setFormData({ ...formData, terceroId: val })}
+                            onCreateNew={createNewTercero}
+                            placeholder="Escribir o seleccionar..."
+                            displayKey="nombre"
+                            valueKey="id"
+                            createLabel="Crear proveedor:"
+                            emptyMessage="Sin proveedores"
+                        />
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -465,13 +502,14 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
                             <div className="relative">
                                 <DollarSign size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                                 <input
-                                    type="number"
-                                    value={formData.monto}
-                                    onChange={(e) => setFormData({ ...formData, monto: e.target.value })}
+                                    type="text"
+                                    value={formatDisplayNumber(formData.monto)}
+                                    onChange={(e) => setFormData({ ...formData, monto: parseFormattedNumber(e.target.value) })}
                                     className="input-field"
                                     style={{ paddingLeft: '40px' }}
                                     placeholder="0"
                                     required
+                                    inputMode="numeric"
                                 />
                             </div>
                         </div>
@@ -599,11 +637,12 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
                                                 <div className="flex gap-2">
                                                     <div className="flex-1">
                                                         <input
-                                                            type="number"
-                                                            value={paymentData.monto}
-                                                            onChange={(e) => setPaymentData({ ...paymentData, monto: e.target.value })}
+                                                            type="text"
+                                                            value={formatDisplayNumber(paymentData.monto)}
+                                                            onChange={(e) => setPaymentData({ ...paymentData, monto: parseFormattedNumber(e.target.value) })}
                                                             className="input-field"
-                                                            placeholder="Monto a abonar"
+                                                            placeholder="Monto a pagar"
+                                                            inputMode="numeric"
                                                         />
                                                     </div>
                                                     <select
