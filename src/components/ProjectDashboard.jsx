@@ -27,7 +27,9 @@ export default function ProjectDashboard() {
         empresasBalance: [],
         gastosProyecto: [],
         deudasCajas: [],
-        recentTransactions: []
+
+        recentTransactions: [],
+        categorias: []
     });
     const [loading, setLoading] = useState(true);
     const [showAllTransactions, setShowAllTransactions] = useState(false);
@@ -43,11 +45,12 @@ export default function ProjectDashboard() {
 
     async function loadStats() {
         try {
-            const [transacciones, cajas, empresas, proyectos] = await Promise.all([
+            const [transacciones, cajas, empresas, proyectos, categorias] = await Promise.all([
                 db.transacciones.toArray(),
                 db.cajas.toArray(),
                 db.empresas.toArray(),
-                db.proyectos.toArray()
+                db.proyectos.toArray(),
+                db.categorias.toArray()
             ]);
 
             // Store all transactions for full view
@@ -101,7 +104,8 @@ export default function ProjectDashboard() {
                 empresasBalance,
                 gastosProyecto,
                 deudasCajas: [], // Now handled by DeudaCajasPanel
-                recentTransactions
+                recentTransactions,
+                categorias
             });
         } finally {
             setLoading(false);
@@ -223,6 +227,14 @@ export default function ProjectDashboard() {
         });
     }
 
+    function getCategoryName(catId) {
+        if (!catId) return '';
+        // Check if it's a legacy string category
+        if (!catId.includes('-')) return catId;
+        const cat = stats.categorias.find(c => c.id === catId);
+        return cat ? cat.nombre : catId;
+    }
+
     // Transaction row component
     function TransactionRow({ t, showActions = false }) {
         return (
@@ -233,7 +245,7 @@ export default function ProjectDashboard() {
                         }`} />
                     <div className="min-w-0 flex-1">
                         <p className="text-sm text-white truncate">
-                            {t.descripcion || t.categoria || t.tipo_movimiento}
+                            {t.descripcion || getCategoryName(t.categoria) || t.tipo_movimiento}
                         </p>
                         <p className="text-xs text-gray-500">{formatDate(t.fecha || t.created_at)}</p>
                     </div>
@@ -335,14 +347,14 @@ export default function ProjectDashboard() {
     }
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-8">
             <h2 className="text-xl font-bold flex items-center gap-2">
                 <LayoutDashboard size={22} className="text-gold" />
                 Dashboard
             </h2>
 
             {/* Summary cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="dashboard-stats">
                 <div className="card">
                     <div className="flex items-center gap-3 mb-2">
                         <div className="p-2 rounded-lg bg-blue-500/20 text-blue-400">
@@ -380,58 +392,61 @@ export default function ProjectDashboard() {
                 </div>
             </div>
 
-            {/* Balance by company */}
-            {stats.empresasBalance.length > 0 && (
-                <div className="card">
-                    <h3 className="font-semibold mb-4 flex items-center gap-2">
-                        <Building2 size={18} className="text-gold" />
-                        Saldo por Empresa
-                    </h3>
-                    <div className="space-y-3">
-                        {stats.empresasBalance.map((empresa) => (
-                            <div key={empresa.id} className="flex items-center justify-between">
-                                <span className="text-gray-300">{empresa.nombre}</span>
-                                <span className={`font-bold ${empresa.balance >= 0 ? 'text-green' : 'text-red'}`}>
-                                    {formatMoney(empresa.balance)}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* Expenses by project */}
-            {stats.gastosProyecto.length > 0 && (
-                <div className="card">
-                    <h3 className="font-semibold mb-4 flex items-center gap-2">
-                        <FolderOpen size={18} className="text-gold" />
-                        Gastos por Proyecto
-                    </h3>
-                    <div className="space-y-3">
-                        {stats.gastosProyecto.map((proyecto) => {
-                            const maxGasto = stats.gastosProyecto[0]?.gastos || 1;
-                            const percentage = (proyecto.gastos / maxGasto) * 100;
-
-                            return (
-                                <div key={proyecto.id}>
-                                    <div className="flex items-center justify-between mb-1">
-                                        <span className="text-gray-300 text-sm">{proyecto.nombre}</span>
-                                        <span className="text-red font-medium text-sm">
-                                            {formatMoney(proyecto.gastos)}
-                                        </span>
-                                    </div>
-                                    <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-                                        <div
-                                            className="h-full bg-gradient-to-r from-red-500 to-orange-500 transition-all duration-500"
-                                            style={{ width: `${percentage}%` }}
-                                        />
-                                    </div>
+            {/* Two-panel layout for desktop */}
+            <div className="two-panel-layout">
+                {stats.empresasBalance.length > 0 && (
+                    <div className="card">
+                        <h3 className="font-semibold mb-4 flex items-center gap-2">
+                            <Building2 size={18} className="text-gold" />
+                            Saldo por Empresa
+                        </h3>
+                        <div className="space-y-3">
+                            {stats.empresasBalance.map((empresa) => (
+                                <div key={empresa.id} className="flex items-center justify-between">
+                                    <span className="text-gray-300">{empresa.nombre}</span>
+                                    <span className={`font-bold ${empresa.balance >= 0 ? 'text-green' : 'text-red'}`}>
+                                        {formatMoney(empresa.balance)}
+                                    </span>
                                 </div>
-                            );
-                        })}
+                            ))}
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
+
+                {/* Expenses by project */}
+                {stats.gastosProyecto.length > 0 && (
+                    <div className="card">
+                        <h3 className="font-semibold mb-4 flex items-center gap-2">
+                            <FolderOpen size={18} className="text-gold" />
+                            Gastos por Proyecto
+                        </h3>
+                        <div className="space-y-3">
+                            {stats.gastosProyecto.map((proyecto) => {
+                                const maxGasto = stats.gastosProyecto[0]?.gastos || 1;
+                                const percentage = (proyecto.gastos / maxGasto) * 100;
+
+                                return (
+                                    <div key={proyecto.id}>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="text-gray-300 text-sm">{proyecto.nombre}</span>
+                                            <span className="text-red font-medium text-sm">
+                                                {formatMoney(proyecto.gastos)}
+                                            </span>
+                                        </div>
+                                        <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                                            <div
+                                                className="h-full bg-gradient-to-r from-red-500 to-orange-500 transition-all duration-500"
+                                                style={{ width: `${percentage}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
+            </div> {/* End two-panel-layout */}
 
 
 

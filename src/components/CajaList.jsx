@@ -73,18 +73,18 @@ export default function CajaList() {
     }
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-8">
             {/* Total balance card */}
             <div className="card bg-gradient-to-br from-amber-500/20 to-amber-600/10 border-amber-500/30">
-                <p className="text-sm text-gray-400 mb-1">Saldo Total</p>
+                <p className="text-sm text-gray-400 mb-2">Saldo Total</p>
                 <p className={`text-3xl font-bold ${totalBalance >= 0 ? 'text-green' : 'text-red'}`}>
                     {formatMoney(totalBalance)}
                 </p>
-                <p className="text-xs text-gray-500 mt-2">{cajas.length} cajas registradas</p>
+                <p className="text-xs text-gray-500 mt-3">{cajas.length} cajas registradas</p>
             </div>
 
             {/* Filter tabs */}
-            <div className="flex gap-2 overflow-x-auto pb-2">
+            <div className="flex gap-3 overflow-x-auto pb-2">
                 {['all', 'Efectivo', 'Banco', 'Tarjeta'].map((f) => (
                     <button
                         key={f}
@@ -100,8 +100,8 @@ export default function CajaList() {
                 ))}
             </div>
 
-            {/* Cajas list */}
-            <div className="space-y-3">
+            {/* Cajas grid - responsive */}
+            <div className="responsive-grid">
                 {filteredCajas.map((caja) => {
                     const Icon = getIcon(caja.tipo);
                     const colorClass = getColor(caja.tipo);
@@ -109,16 +109,17 @@ export default function CajaList() {
                     const balance = caja.saldo_actual || 0;
 
                     return (
-                        <div key={caja.id} className="card flex items-center gap-4">
-                            <div className={`p-3 rounded-xl ${colorClass}`}>
-                                <Icon size={24} />
-                            </div>
-
-                            <div className="flex-1 min-w-0">
-                                <h3 className="font-semibold text-white truncate">{caja.nombre}</h3>
-                                <p className="text-sm text-gray-400 truncate">
-                                    {empresa?.nombre || 'Sin empresa'} • {caja.tipo}
-                                </p>
+                        <div key={caja.id} className="card flex flex-col gap-4">
+                            <div className="flex items-center gap-3">
+                                <div className={`p-3 rounded-xl ${colorClass}`}>
+                                    <Icon size={24} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <h3 className="font-semibold text-white truncate">{caja.nombre}</h3>
+                                    <p className="text-sm text-gray-400 truncate">
+                                        {empresa?.nombre || 'Sin empresa'} • {caja.tipo}
+                                    </p>
+                                </div>
                             </div>
 
                             <div className="text-right">

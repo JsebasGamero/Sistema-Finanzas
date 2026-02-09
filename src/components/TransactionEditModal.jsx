@@ -16,19 +16,7 @@ export default function TransactionEditModal({
     const [terceros, setTerceros] = useState([]);
     const [saving, setSaving] = useState(false);
 
-    const categorias = [
-        'Nómina',
-        'Materiales',
-        'Viáticos',
-        'Combustible (ACPM)',
-        'Transporte',
-        'Alquiler Maquinaria',
-        'Préstamo',
-        'Pago Préstamo',
-        'Servicios',
-        'Seguridad Social',
-        'Otros'
-    ];
+    const [categorias, setCategorias] = useState([]);
 
     useEffect(() => {
         if (isOpen && transaction) {
@@ -49,6 +37,14 @@ export default function TransactionEditModal({
         setCajas(cajasData);
         setProyectos(proyectosData);
         setTerceros(tercerosData);
+
+        // Load categories
+        try {
+            const categoriasData = await db.categorias.toArray();
+            setCategorias(categoriasData);
+        } catch (e) {
+            console.log('Error loading categories:', e);
+        }
     }
 
     // Format number with thousand separators (dots) for display in input
@@ -85,6 +81,73 @@ export default function TransactionEditModal({
 
         setTerceros(prev => [...prev, newTercero]);
         return newTercero;
+    }
+
+    // Create a new category on the fly
+    async function createNewCategoria(nombre) {
+        const newCategoria = {
+            id: generateUUID(),
+            nombre: nombre,
+            tipo: 'general',
+            created_at: new Date().toISOString()
+        };
+
+        try {
+            await db.categorias.add(newCategoria);
+            await addToSyncQueue('categorias', 'INSERT', newCategoria);
+            if (navigator.onLine) {
+                processSyncQueue().catch(err => console.log('Sync error:', err));
+            }
+        } catch (e) {
+            console.log('Categories table may not exist:', e);
+        }
+
+        setCategorias(prev => [...prev, newCategoria]);
+        return newCategoria;
+    }
+
+    // Create a new caja on the fly
+    async function createNewCaja(nombre) {
+        const newCaja = {
+            id: generateUUID(),
+            nombre: nombre,
+            tipo: 'Efectivo', // Default type
+            empresa_id: null,
+            saldo_actual: 0,
+            created_at: new Date().toISOString()
+        };
+
+        await db.cajas.add(newCaja);
+        await addToSyncQueue('cajas', 'INSERT', newCaja);
+
+        if (navigator.onLine) {
+            processSyncQueue().catch(err => console.log('Sync error:', err));
+        }
+
+        setCajas(prev => [...prev, newCaja]);
+        return newCaja;
+    }
+
+    // Create a new project on the fly
+    async function createNewProyecto(nombre) {
+        const newProyecto = {
+            id: generateUUID(),
+            nombre: nombre,
+            empresa_id: formData.empresa_id || null, // Link to current company if selected
+            estado: 'ACTIVO',
+            presupuesto_estimado: 0,
+            created_at: new Date().toISOString()
+        };
+
+        await db.proyectos.add(newProyecto);
+        await addToSyncQueue('proyectos', 'INSERT', newProyecto);
+
+        if (navigator.onLine) {
+            processSyncQueue().catch(err => console.log('Sync error:', err));
+        }
+
+        setProyectos(prev => [...prev, newProyecto]);
+        return newProyecto;
     }
 
     async function handleSubmit(e) {
@@ -176,19 +239,17 @@ export default function TransactionEditModal({
                         <label className="label">
                             {tipo === 'TRANSFERENCIA' ? 'Caja Origen' : 'Caja'}
                         </label>
-                        <select
-                            value={formData.caja_origen_id || ''}
-                            onChange={(e) => setFormData({ ...formData, caja_origen_id: e.target.value })}
-                            className="input-field"
-                            required
-                        >
-                            <option value="">Seleccionar...</option>
-                            {cajas.map((caja) => (
-                                <option key={caja.id} value={caja.id}>
-                                    {caja.nombre} ({caja.tipo})
-                                </option>
-                            ))}
-                        </select>
+                        <AutocompleteInput
+                            items={cajas}
+                            value={formData.caja_origen_id}
+                            onChange={(val) => setFormData({ ...formData, caja_origen_id: val })}
+                            onCreateNew={createNewCaja}
+                            placeholder="Escribir o seleccionar caja..."
+                            displayKey="nombre"
+                            valueKey="id"
+                            createLabel="Crear nueva caja:"
+                            emptyMessage="Sin cajas disponibles"
+                        />
                     </div>
 
                     {/* Caja Destino - Only for transfers */}
@@ -198,50 +259,50 @@ export default function TransactionEditModal({
                                 <ArrowRight className="text-gold" size={20} />
                             </div>
                             <label className="label">Caja Destino</label>
-                            <select
-                                value={formData.caja_destino_id || ''}
-                                onChange={(e) => setFormData({ ...formData, caja_destino_id: e.target.value })}
-                                className="input-field"
-                                required
-                            >
-                                <option value="">Seleccionar...</option>
-                                {cajas.filter(c => c.id !== formData.caja_origen_id).map((caja) => (
-                                    <option key={caja.id} value={caja.id}>
-                                        {caja.nombre} ({caja.tipo})
-                                    </option>
-                                ))}
-                            </select>
+                            <AutocompleteInput
+                                items={cajas.filter(c => c.id !== formData.caja_origen_id)}
+                                value={formData.caja_destino_id}
+                                onChange={(val) => setFormData({ ...formData, caja_destino_id: val })}
+                                onCreateNew={createNewCaja}
+                                placeholder="Escribir o seleccionar caja destino..."
+                                displayKey="nombre"
+                                valueKey="id"
+                                createLabel="Crear nueva caja:"
+                                emptyMessage="Sin cajas disponibles"
+                            />
                         </div>
                     )}
 
                     {/* Category */}
                     <div>
                         <label className="label">Categoría</label>
-                        <select
-                            value={formData.categoria || ''}
-                            onChange={(e) => setFormData({ ...formData, categoria: e.target.value })}
-                            className="input-field"
-                        >
-                            <option value="">Seleccionar...</option>
-                            {categorias.map((cat) => (
-                                <option key={cat} value={cat}>{cat}</option>
-                            ))}
-                        </select>
+                        <AutocompleteInput
+                            items={categorias}
+                            value={formData.categoria}
+                            onChange={(val) => setFormData({ ...formData, categoria: val })}
+                            onCreateNew={createNewCategoria}
+                            placeholder="Escribir o seleccionar categoría..."
+                            displayKey="nombre"
+                            valueKey="id"
+                            createLabel="Crear nueva categoría:"
+                            emptyMessage="Sin categorías"
+                        />
                     </div>
 
                     {/* Project */}
                     <div>
                         <label className="label">Proyecto / Obra</label>
-                        <select
-                            value={formData.proyecto_id || ''}
-                            onChange={(e) => setFormData({ ...formData, proyecto_id: e.target.value || null })}
-                            className="input-field"
-                        >
-                            <option value="">Sin proyecto</option>
-                            {proyectos.map((p) => (
-                                <option key={p.id} value={p.id}>{p.nombre}</option>
-                            ))}
-                        </select>
+                        <AutocompleteInput
+                            items={proyectos}
+                            value={formData.proyecto_id}
+                            onChange={(val) => setFormData({ ...formData, proyecto_id: val })}
+                            onCreateNew={createNewProyecto}
+                            placeholder="Escribir o seleccionar proyecto..."
+                            displayKey="nombre"
+                            valueKey="id"
+                            createLabel="Crear nuevo proyecto:"
+                            emptyMessage="Sin proyectos"
+                        />
                     </div>
 
                     {/* Third party */}

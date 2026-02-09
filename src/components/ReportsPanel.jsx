@@ -55,6 +55,7 @@ export default function ReportsPanel() {
     const [empresas, setEmpresas] = useState([]);
     const [deudasTerceros, setDeudasTerceros] = useState([]);
     const [deudasCajas, setDeudasCajas] = useState([]);
+    const [categorias, setCategorias] = useState([]);
 
     // Filters
     const [searchTerm, setSearchTerm] = useState('');
@@ -78,18 +79,20 @@ export default function ReportsPanel() {
     async function loadAllData() {
         setLoading(true);
         try {
-            const [trans, terc, caj, proy, emp] = await Promise.all([
+            const [trans, terc, caj, proy, emp, cats] = await Promise.all([
                 db.transacciones.toArray(),
                 db.terceros.toArray(),
                 db.cajas.toArray(),
                 db.proyectos.toArray(),
-                db.empresas.toArray()
+                db.empresas.toArray(),
+                db.categorias.toArray()
             ]);
             setTransacciones(trans);
             setTerceros(terc);
             setCajas(caj);
             setProyectos(proy);
             setEmpresas(emp);
+            setCategorias(cats);
 
             // Load deudas terceros (supplier debts)
             if (db.deudas_terceros) {
@@ -149,6 +152,12 @@ export default function ReportsPanel() {
 
     function getEmpresaName(id) {
         return empresas.find(e => e.id === id)?.nombre || '-';
+    }
+
+    function getCategoryName(catId) {
+        if (!catId) return '-';
+        if (!catId.includes('-')) return catId;
+        return categorias.find(c => c.id === catId)?.nombre || catId;
     }
 
     // Filter transactions
@@ -425,7 +434,7 @@ export default function ReportsPanel() {
     }
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-8">
             {/* Header */}
             <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold flex items-center gap-2">
@@ -442,7 +451,7 @@ export default function ReportsPanel() {
             </div>
 
             {/* Report Type Tabs */}
-            <div className="flex gap-2 overflow-x-auto pb-2">
+            <div className="flex gap-3 overflow-x-auto pb-3">
                 {REPORT_TYPES.map(report => {
                     const Icon = report.icon;
                     const isActive = activeReport === report.id;
@@ -450,12 +459,12 @@ export default function ReportsPanel() {
                         <button
                             key={report.id}
                             onClick={() => setActiveReport(report.id)}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-lg whitespace-nowrap text-sm font-medium transition-colors ${isActive
-                                ? 'bg-gold text-white'
-                                : 'bg-card text-gray-400 hover:text-white'
+                            className={`flex items-center gap-2 px-5 py-3 rounded-xl whitespace-nowrap text-sm font-medium transition-all ${isActive
+                                ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-lg shadow-amber-500/25'
+                                : 'bg-card text-gray-400 hover:text-white hover:bg-slate-700'
                                 }`}
                         >
-                            <Icon size={16} />
+                            <Icon size={18} />
                             {report.name}
                         </button>
                     );
@@ -694,7 +703,7 @@ function MovimientosReport({ transactions, getCajaName, getTerceroName, getProye
                                     </div>
                                     <div className="text-left">
                                         <p className="font-medium text-white text-sm">
-                                            {t.descripcion || t.categoria || t.tipo_movimiento}
+                                            {t.descripcion || getCategoryName(t.categoria) || t.tipo_movimiento}
                                         </p>
                                         <p className="text-xs text-gray-500">{formatDate(t.fecha)}</p>
                                     </div>
@@ -722,7 +731,7 @@ function MovimientosReport({ transactions, getCajaName, getTerceroName, getProye
                                     {/* Categoría */}
                                     <div>
                                         <p className="text-xs text-gray-500">Categoría</p>
-                                        <p className="text-gray-300">{t.categoria || '-'}</p>
+                                        <p className="text-gray-300">{getCategoryName(t.categoria)}</p>
                                     </div>
 
                                     {/* Caja Origen */}
@@ -965,7 +974,7 @@ function ProveedoresReport({ providerBalances, deudasTerceros, terceros, formatM
                                             <div className="space-y-1">
                                                 {item.transactions.slice(0, 5).map((t, idx) => (
                                                     <div key={idx} className="flex justify-between text-sm">
-                                                        <span className="text-gray-400">{t.categoria || t.descripcion || 'Pago'}</span>
+                                                        <span className="text-gray-400">{getCategoryName(t.categoria) || t.descripcion || 'Pago'}</span>
                                                         <span className="text-green-400">{formatMoney(t.monto)}</span>
                                                     </div>
                                                 ))}

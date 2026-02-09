@@ -225,7 +225,7 @@ export default function AdminPanel() {
                 </h2>
                 <p className="text-gray-400">Administra los datos del sistema</p>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {Object.entries(ENTITIES).map(([key, config]) => {
                         const Icon = config.icon;
                         return (
