@@ -441,16 +441,17 @@ export default function ReportsPanel() {
     }
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-6 animate-fade-in">
             {/* Header */}
-            <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold flex items-center gap-2">
+            <div className="section-header">
+                <h2 className="section-title">
                     <BarChart3 size={22} className="text-gold" />
                     Reportes
                 </h2>
                 <button
                     onClick={exportToPDF}
-                    className="flex items-center gap-2 bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-medium"
+                    className="flex items-center gap-2 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all"
+                    style={{ background: 'linear-gradient(135deg, #dc2626, #b91c1c)', boxShadow: '0 4px 12px -2px rgba(220,38,38,0.3)' }}
                 >
                     <FileText size={16} />
                     Exportar PDF
@@ -458,7 +459,7 @@ export default function ReportsPanel() {
             </div>
 
             {/* Report Type Tabs */}
-            <div className="flex gap-3 overflow-x-auto pb-3">
+            <div className="flex gap-2.5 overflow-x-auto pb-2">
                 {REPORT_TYPES.map(report => {
                     const Icon = report.icon;
                     const isActive = activeReport === report.id;
@@ -466,12 +467,9 @@ export default function ReportsPanel() {
                         <button
                             key={report.id}
                             onClick={() => setActiveReport(report.id)}
-                            className={`flex items-center gap-2 px-5 py-3 rounded-xl whitespace-nowrap text-sm font-medium transition-all ${isActive
-                                ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-lg shadow-amber-500/25'
-                                : 'bg-card text-gray-400 hover:text-white hover:bg-slate-700'
-                                }`}
+                            className={`tab-pill flex items-center gap-2 ${isActive ? 'active' : ''}`}
                         >
-                            <Icon size={18} />
+                            <Icon size={16} />
                             {report.name}
                         </button>
                     );
@@ -494,10 +492,10 @@ export default function ReportsPanel() {
                     </div>
                     <button
                         onClick={() => setShowFilters(!showFilters)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium ${showFilters ? 'bg-gold text-white' : 'bg-card text-gray-400'
-                            }`}
+                        className={`tab-pill flex items-center gap-2 ${showFilters ? 'active' : ''}`}
+                        style={{ borderRadius: 'var(--radius-md)' }}
                     >
-                        <Filter size={18} />
+                        <Filter size={16} />
                         Filtros
                     </button>
                 </div>

@@ -37,19 +37,24 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
 
     return (
         <div className="h-screen bg-primary flex flex-col lg:flex-row overflow-hidden">
-            {/* Desktop Sidebar - Hidden on mobile, visible on lg+ */}
-            <aside className="hidden lg:flex lg:flex-col lg:w-64 bg-secondary border-r border-white/10 flex-shrink-0">
+            {/* Desktop Sidebar */}
+            <aside className="hidden lg:flex lg:flex-col lg:w-[260px] bg-secondary flex-shrink-0"
+                style={{ borderRight: '1px solid rgba(255,255,255,0.06)' }}>
                 {/* Sidebar Header */}
-                <div className="p-4 border-b border-white/10">
-                    <h1 className="text-xl font-bold text-gold flex items-center gap-2">
-                        <Coins size={26} />
+                <div className="px-5 py-5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <h1 className="text-xl font-bold text-gold flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg">
+                            <Coins size={20} className="text-white" />
+                        </div>
                         FinanzasObra
                     </h1>
-                    <p className="text-xs text-gray-500 mt-1">Sistema de Gestión Financiera</p>
+                    <p className="text-xs mt-1.5 ml-[46px]" style={{ color: 'var(--text-muted)' }}>
+                        Sistema de Gestión Financiera
+                    </p>
                 </div>
 
                 {/* Sidebar Navigation */}
-                <nav className="flex-1 p-3 space-y-1">
+                <nav className="flex-1 px-3 py-4 space-y-0.5">
                     {tabs.map((tab) => {
                         const Icon = tab.icon;
                         const isActive = activeTab === tab.id;
@@ -57,29 +62,34 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                             <button
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id)}
-                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all
+                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-[14.5px]
                                     ${isActive
-                                        ? 'bg-gold/15 text-gold border-l-4 border-gold'
-                                        : 'text-gray-400 hover:bg-white/5 hover:text-white border-l-4 border-transparent'
+                                        ? 'text-gold font-semibold'
+                                        : 'text-gray-400 hover:text-white hover:bg-white/[0.04]'
                                     }`}
+                                style={isActive ? {
+                                    background: 'linear-gradient(135deg, rgba(245,166,35,0.1) 0%, rgba(245,166,35,0.04) 100%)',
+                                    borderLeft: '3px solid var(--accent-gold)'
+                                } : { borderLeft: '3px solid transparent' }}
                             >
-                                <Icon size={22} />
-                                <span className="font-medium">{tab.label}</span>
+                                <Icon size={20} strokeWidth={isActive ? 2.2 : 1.8} />
+                                <span>{tab.label}</span>
                             </button>
                         );
                     })}
                 </nav>
 
-                {/* Sidebar Footer - User + Status */}
-                <div className="p-4 border-t border-white/10 space-y-3">
+                {/* Sidebar Footer – User + Status */}
+                <div className="px-4 py-4 space-y-3" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                     {/* User info */}
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-md animate-glow"
+                            style={{ boxShadow: '0 0 18px rgba(245,166,35,0.15)' }}>
                             {userInitials}
                         </div>
                         <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-white truncate">{currentUser?.nombre}</p>
-                            <p className="text-xs text-gray-500 truncate">{currentUser?.email}</p>
+                            <p className="text-sm font-semibold text-white truncate">{currentUser?.nombre}</p>
+                            <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{currentUser?.email}</p>
                         </div>
                     </div>
 
@@ -91,18 +101,18 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                     {pendingSync > 0 && (
                         <button
                             onClick={onSync}
-                            className="w-full flex items-center justify-center gap-2 bg-amber-500/20 text-amber-400 px-3 py-2 rounded-lg text-sm hover:bg-amber-500/30 transition-colors"
+                            className="w-full flex items-center justify-center gap-2 bg-amber-500/15 text-amber-400 px-3 py-2.5 rounded-xl text-sm font-medium hover:bg-amber-500/25 transition-colors"
                         >
-                            <RefreshCw size={16} />
+                            <RefreshCw size={15} />
                             Sincronizar ({pendingSync})
                         </button>
                     )}
 
                     <button
                         onClick={onLogout}
-                        className="w-full flex items-center justify-center gap-2 text-gray-400 hover:text-red-400 px-3 py-2 rounded-lg text-sm hover:bg-red-500/10 transition-colors"
+                        className="w-full flex items-center justify-center gap-2 text-gray-500 hover:text-red-400 px-3 py-2.5 rounded-xl text-sm hover:bg-red-500/8 transition-colors"
                     >
-                        <LogOut size={16} />
+                        <LogOut size={15} />
                         Cerrar sesión
                     </button>
                 </div>
@@ -110,63 +120,65 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
 
             {/* Main Content Area */}
             <div className="flex-1 flex flex-col min-w-0">
-                {/* Mobile Header - Hidden on desktop */}
-                <header className="flex-shrink-0 bg-secondary px-4 py-3 flex items-center justify-between border-b border-white/10 lg:hidden">
+                {/* Mobile Header */}
+                <header className="flex-shrink-0 bg-secondary px-4 py-3 flex items-center justify-between lg:hidden"
+                    style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                     <div className="flex items-center gap-3">
                         <button
                             onClick={() => setMenuOpen(!menuOpen)}
-                            className="p-2 touch-target"
+                            className="p-2 touch-target text-gray-400"
                         >
-                            {menuOpen ? <X size={24} /> : <Menu size={24} />}
+                            {menuOpen ? <X size={22} /> : <Menu size={22} />}
                         </button>
                         <h1 className="text-lg font-bold text-gold flex items-center gap-2">
-                            <Coins size={22} />
+                            <Coins size={20} />
                             FinanzasObra
                         </h1>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2.5">
                         <div className={`sync-indicator ${isOnline ? 'online' : 'offline'}`}>
-                            {isOnline ? <Wifi size={14} /> : <WifiOff size={14} className="pulse" />}
-                            <span className="hidden sm:inline">{isOnline ? 'Online' : 'Offline'}</span>
+                            {isOnline ? <Wifi size={13} /> : <WifiOff size={13} className="pulse" />}
+                            <span className="hidden sm:inline text-xs">{isOnline ? 'Online' : 'Offline'}</span>
                         </div>
 
                         {pendingSync > 0 && (
                             <button
                                 onClick={onSync}
-                                className="flex items-center gap-1 bg-amber-500/20 text-amber-400 px-2 py-1 rounded-full text-xs"
+                                className="flex items-center gap-1 bg-amber-500/15 text-amber-400 px-2.5 py-1.5 rounded-full text-xs font-medium"
                             >
                                 <RefreshCw size={12} />
                                 {pendingSync}
                             </button>
                         )}
 
-                        {/* Mobile user avatar + logout */}
+                        {/* Mobile user avatar */}
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white text-xs font-bold">
                             {userInitials}
                         </div>
                         <button
                             onClick={onLogout}
-                            className="text-gray-400 hover:text-red-400 p-1"
+                            className="text-gray-500 hover:text-red-400 p-1 transition-colors"
                             title="Cerrar sesión"
                         >
-                            <LogOut size={18} />
+                            <LogOut size={17} />
                         </button>
                     </div>
                 </header>
 
-                {/* Desktop Header - Shows current section name */}
-                <header className="hidden lg:flex flex-shrink-0 bg-secondary px-6 py-4 items-center justify-between border-b border-white/10">
-                    <h2 className="text-xl font-semibold text-white">
+                {/* Desktop Header */}
+                <header className="hidden lg:flex flex-shrink-0 bg-secondary/80 backdrop-blur-md px-8 py-4 items-center justify-between"
+                    style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <h2 className="text-lg font-semibold text-white">
                         {tabs.find(t => t.id === activeTab)?.label || 'Dashboard'}
                     </h2>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-4">
                         {pendingSync > 0 && (
                             <button
                                 onClick={onSync}
-                                className="flex items-center gap-2 bg-amber-500/20 text-amber-400 px-4 py-2 rounded-lg text-sm hover:bg-amber-500/30 transition-colors"
+                                className="flex items-center gap-2 bg-amber-500/15 text-amber-400 px-4 py-2 rounded-xl text-sm font-medium hover:bg-amber-500/25 transition-colors"
                             >
-                                <RefreshCw size={16} />
+                                <RefreshCw size={15} />
                                 Sincronizar {pendingSync} pendiente(s)
                             </button>
                         )}
@@ -179,21 +191,22 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                 {/* Mobile menu overlay */}
                 {menuOpen && (
                     <div
-                        className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+                        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
                         onClick={() => setMenuOpen(false)}
                     />
                 )}
 
-                {/* Content area - Scrollable */}
-                <main className="flex-1 overflow-y-auto p-5 lg:p-8 pb-4 lg:pb-8">
+                {/* Content area – Scrollable */}
+                <main className="flex-1 overflow-y-auto p-4 sm:p-5 md:p-6 lg:p-8 pb-24 lg:pb-8">
                     <div className="max-w-7xl mx-auto">
                         {children}
                     </div>
                 </main>
 
-                {/* Mobile Bottom Navigation - Hidden on desktop */}
-                <nav className="flex-shrink-0 bg-secondary border-t border-white/10 px-1 py-2 lg:hidden safe-area-bottom">
-                    <div className="flex justify-around">
+                {/* Mobile Bottom Navigation */}
+                <nav className="flex-shrink-0 bg-secondary lg:hidden safe-area-bottom"
+                    style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div className="flex justify-around px-1 py-2">
                         {tabs.map((tab) => {
                             const Icon = tab.icon;
                             const isActive = activeTab === tab.id;
@@ -201,11 +214,17 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
-                                    className={`flex flex-col items-center gap-1 p-2 rounded-lg touch-target transition-colors
-                                        ${isActive ? 'text-gold bg-gold/10' : 'text-gray-400 hover:text-white'}`}
+                                    className={`flex flex-col items-center gap-0.5 py-1.5 px-3 rounded-xl touch-target transition-all
+                                        ${isActive
+                                            ? 'text-gold'
+                                            : 'text-gray-500 hover:text-white'
+                                        }`}
+                                    style={isActive ? {
+                                        background: 'rgba(245,166,35,0.08)'
+                                    } : undefined}
                                 >
-                                    <Icon size={22} />
-                                    <span className="text-xs font-medium">{tab.label}</span>
+                                    <Icon size={21} strokeWidth={isActive ? 2.2 : 1.7} />
+                                    <span className="text-[10px] font-semibold">{tab.label}</span>
                                 </button>
                             );
                         })}
@@ -215,4 +234,3 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
         </div>
     );
 }
-

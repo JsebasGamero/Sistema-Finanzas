@@ -1,6 +1,6 @@
 // CajaList component - Displays all cash boxes with balances
 import { useState, useEffect } from 'react';
-import { Wallet, Building2, CreditCard, Banknote, TrendingUp, TrendingDown } from 'lucide-react';
+import { Wallet, Building2, CreditCard, Banknote, TrendingUp, TrendingDown, DollarSign } from 'lucide-react';
 import { db } from '../services/db';
 
 export default function CajaList() {
@@ -48,10 +48,10 @@ export default function CajaList() {
 
     const getColor = (tipo) => {
         switch (tipo) {
-            case 'Efectivo': return 'text-green-400 bg-green-500/10';
-            case 'Banco': return 'text-blue-400 bg-blue-500/10';
-            case 'Tarjeta': return 'text-purple-400 bg-purple-500/10';
-            default: return 'text-gray-400 bg-gray-500/10';
+            case 'Efectivo': return { icon: 'text-green-400', bg: 'bg-green-500/10' };
+            case 'Banco': return { icon: 'text-blue-400', bg: 'bg-blue-500/10' };
+            case 'Tarjeta': return { icon: 'text-purple-400', bg: 'bg-purple-500/10' };
+            default: return { icon: 'text-gray-400', bg: 'bg-gray-500/10' };
         }
     };
 
@@ -73,66 +73,72 @@ export default function CajaList() {
     }
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-6 animate-fade-in">
             {/* Total balance card */}
-            <div className="card bg-gradient-to-br from-amber-500/20 to-amber-600/10 border-amber-500/30">
-                <p className="text-sm text-gray-400 mb-2">Saldo Total</p>
-                <p className={`text-3xl font-bold ${totalBalance >= 0 ? 'text-green' : 'text-red'}`}>
+            <div className="card stat-card stat-gold" style={{
+                background: 'linear-gradient(145deg, rgba(245,166,35,0.08) 0%, rgba(26,37,64,0.85) 100%)',
+                borderColor: 'rgba(245,166,35,0.12)'
+            }}>
+                <div className="flex items-center gap-3 mb-3">
+                    <div className="w-11 h-11 rounded-xl bg-amber-500/12 flex items-center justify-center">
+                        <DollarSign size={22} className="text-amber-400" />
+                    </div>
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Saldo Total en Cajas</span>
+                </div>
+                <p className={`text-3xl font-bold tracking-tight ${totalBalance >= 0 ? 'text-green' : 'text-red'}`}>
                     {formatMoney(totalBalance)}
                 </p>
-                <p className="text-xs text-gray-500 mt-3">{cajas.length} cajas registradas</p>
+                <p className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
+                    {cajas.length} cajas registradas
+                </p>
             </div>
 
             {/* Filter tabs */}
-            <div className="flex gap-3 overflow-x-auto pb-2">
+            <div className="flex gap-2.5 overflow-x-auto pb-1">
                 {['all', 'Efectivo', 'Banco', 'Tarjeta'].map((f) => (
                     <button
                         key={f}
                         onClick={() => setFilter(f)}
-                        className={`px-4 py-2 rounded-full whitespace-nowrap text-sm font-medium transition-colors
-              ${filter === f
-                                ? 'bg-gold text-white'
-                                : 'bg-card text-gray-400 hover:text-white'
-                            }`}
+                        className={`tab-pill ${filter === f ? 'active' : ''}`}
                     >
                         {f === 'all' ? 'Todas' : f}
                     </button>
                 ))}
             </div>
 
-            {/* Cajas grid - responsive */}
+            {/* Cajas grid */}
             <div className="responsive-grid">
                 {filteredCajas.map((caja) => {
                     const Icon = getIcon(caja.tipo);
-                    const colorClass = getColor(caja.tipo);
+                    const color = getColor(caja.tipo);
                     const empresa = empresas[caja.empresa_id];
                     const balance = caja.saldo_actual || 0;
 
                     return (
                         <div key={caja.id} className="card flex flex-col gap-4">
                             <div className="flex items-center gap-3">
-                                <div className={`p-3 rounded-xl ${colorClass}`}>
-                                    <Icon size={24} />
+                                <div className={`w-11 h-11 rounded-xl ${color.bg} flex items-center justify-center`}>
+                                    <Icon size={22} className={color.icon} />
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <h3 className="font-semibold text-white truncate">{caja.nombre}</h3>
-                                    <p className="text-sm text-gray-400 truncate">
+                                    <h3 className="font-semibold text-white truncate text-[15px]">{caja.nombre}</h3>
+                                    <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
                                         {empresa?.nombre || 'Sin empresa'} • {caja.tipo}
                                     </p>
                                 </div>
                             </div>
 
-                            <div className="text-right">
-                                <p className={`font-bold text-lg ${balance >= 0 ? 'text-green' : 'text-red'}`}>
+                            <div className="flex items-end justify-between">
+                                <p className={`font-bold text-xl tracking-tight ${balance >= 0 ? 'text-green' : 'text-red'}`}>
                                     {formatMoney(balance)}
                                 </p>
-                                <div className="flex items-center justify-end gap-1 text-xs text-gray-500">
+                                <div className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-muted)' }}>
                                     {balance >= 0 ? (
-                                        <TrendingUp size={12} className="text-green-500" />
+                                        <TrendingUp size={13} className="text-green-500" />
                                     ) : (
-                                        <TrendingDown size={12} className="text-red-500" />
+                                        <TrendingDown size={13} className="text-red-500" />
                                     )}
-                                    <span>Saldo actual</span>
+                                    <span>Saldo</span>
                                 </div>
                             </div>
                         </div>
@@ -141,9 +147,9 @@ export default function CajaList() {
             </div>
 
             {filteredCajas.length === 0 && (
-                <div className="text-center text-gray-500 py-8">
+                <p className="empty-state">
                     No hay cajas de tipo "{filter}"
-                </div>
+                </p>
             )}
         </div>
     );

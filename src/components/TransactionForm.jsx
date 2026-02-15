@@ -332,17 +332,15 @@ export default function TransactionForm({ onTransactionAdded }) {
     }
 
     return (
-        <div className="max-w-lg mx-auto">
+        <div className="max-w-2xl mx-auto animate-fade-in">
             {/* Main Section Selector */}
-            <div className="grid grid-cols-2 gap-3 mb-6">
+            <div className="grid grid-cols-2 gap-3 mb-8">
                 <button
                     type="button"
                     onClick={() => setActiveSection('transaccion')}
-                    className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2
-                        ${activeSection === 'transaccion'
-                            ? 'bg-gold text-white shadow-lg shadow-gold/20'
-                            : 'bg-card text-gray-400 hover:text-white'
-                        }`}
+                    className={`tab-pill text-center py-3.5 px-4 text-sm flex items-center justify-center gap-2
+                        ${activeSection === 'transaccion' ? 'active' : ''}`}
+                    style={{ borderRadius: 'var(--radius-md)' }}
                 >
                     <Receipt size={18} />
                     Transacción
@@ -350,11 +348,9 @@ export default function TransactionForm({ onTransactionAdded }) {
                 <button
                     type="button"
                     onClick={() => setActiveSection('deudas')}
-                    className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2
-                        ${activeSection === 'deudas'
-                            ? 'bg-gold text-white shadow-lg shadow-gold/20'
-                            : 'bg-card text-gray-400 hover:text-white'
-                        }`}
+                    className={`tab-pill text-center py-3.5 px-4 text-sm flex items-center justify-center gap-2
+                        ${activeSection === 'deudas' ? 'active' : ''}`}
+                    style={{ borderRadius: 'var(--radius-md)' }}
                 >
                     <CreditCard size={18} />
                     Deudas
@@ -379,27 +375,27 @@ export default function TransactionForm({ onTransactionAdded }) {
             {/* TRANSACCION SECTION */}
             {activeSection === 'transaccion' && (
                 <>
-                    <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                    <h2 className="section-title">
                         {tipo === 'INGRESO' && <><ArrowDownLeft size={22} className="text-green-500" /> Nuevo Ingreso</>}
                         {tipo === 'EGRESO' && <><ArrowUpRight size={22} className="text-red-500" /> Nuevo Egreso</>}
                         {tipo === 'TRANSFERENCIA' && <><ArrowLeftRight size={22} className="text-blue-500" /> Nueva Transferencia</>}
                     </h2>
 
                     {/* Type selector */}
-                    <div className="grid grid-cols-3 gap-2 mb-6">
+                    <div className="grid grid-cols-3 gap-2.5 mb-7">
                         {['INGRESO', 'EGRESO', 'TRANSFERENCIA'].map((t) => (
                             <button
                                 key={t}
                                 type="button"
                                 onClick={() => setTipo(t)}
-                                className={`py-3 px-2 rounded-lg font-medium text-sm transition-all
+                                className={`py-3 px-2 rounded-xl font-semibold text-sm transition-all
               ${tipo === t
                                         ? t === 'INGRESO'
-                                            ? 'bg-green-500 text-white'
+                                            ? 'bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg shadow-green-500/20'
                                             : t === 'EGRESO'
-                                                ? 'bg-red-500 text-white'
-                                                : 'bg-blue-500 text-white'
-                                        : 'bg-card text-gray-400'
+                                                ? 'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg shadow-red-500/20'
+                                                : 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/20'
+                                        : 'bg-card text-gray-400 hover:text-white'
                                     }`}
                             >
                                 {t === 'INGRESO' && '+ Ingreso'}
@@ -409,7 +405,7 @@ export default function TransactionForm({ onTransactionAdded }) {
                         ))}
                     </div>
 
-                    <form onSubmit={handleSubmit} className="space-y-4">
+                    <form onSubmit={handleSubmit} className="space-y-5">
                         {/* Amount */}
                         <div>
                             <label className="label">Monto *</label>
@@ -420,7 +416,7 @@ export default function TransactionForm({ onTransactionAdded }) {
                                     value={formatDisplayNumber(monto)}
                                     onChange={(e) => setMonto(parseFormattedNumber(e.target.value))}
                                     className="input-field text-2xl font-bold"
-                                    style={{ paddingLeft: '48px' }}
+                                    style={{ paddingLeft: '48px', height: '60px' }}
                                     placeholder="0"
                                     required
                                     inputMode="numeric"
@@ -563,7 +559,10 @@ export default function TransactionForm({ onTransactionAdded }) {
                         {/* Photo button */}
                         <button
                             type="button"
-                            className="w-full py-3 border-2 border-dashed border-gray-600 rounded-lg text-gray-400 flex items-center justify-center gap-2 hover:border-gold hover:text-gold transition-colors"
+                            className="w-full py-3.5 border-2 border-dashed rounded-xl flex items-center justify-center gap-2 transition-colors"
+                            style={{ borderColor: 'rgba(255,255,255,0.08)', color: 'var(--text-muted)' }}
+                            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent-gold)'; e.currentTarget.style.color = 'var(--accent-gold)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
                         >
                             <Camera size={20} />
                             Agregar foto del soporte
@@ -573,22 +572,23 @@ export default function TransactionForm({ onTransactionAdded }) {
                         <button
                             type="submit"
                             disabled={saving || !monto || !cajaOrigenId}
-                            className={`btn-primary w-full flex items-center justify-center gap-2 text-lg
-            ${saved ? 'bg-green-500' : ''}`}
+                            className={`btn-primary w-full flex items-center justify-center gap-2 text-base
+            ${saved ? '!bg-green-500 !shadow-green-500/30' : ''}`}
+                            style={{ padding: '15px 24px', marginTop: '8px' }}
                         >
                             {saving ? (
                                 <>
-                                    <RefreshCw size={20} className="animate-spin" />
+                                    <RefreshCw size={19} className="animate-spin" />
                                     Guardando...
                                 </>
                             ) : saved ? (
                                 <>
-                                    <Check size={20} />
+                                    <Check size={19} />
                                     ¡Guardado!
                                 </>
                             ) : (
                                 <>
-                                    <Save size={20} />
+                                    <Save size={19} />
                                     Guardar {tipo.toLowerCase()}
                                 </>
                             )}

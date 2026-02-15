@@ -218,12 +218,12 @@ export default function AdminPanel() {
     // Main menu view
     if (!activeEntity) {
         return (
-            <div className="space-y-6">
-                <h2 className="text-xl font-bold flex items-center gap-2">
+            <div className="space-y-6 animate-fade-in">
+                <h2 className="section-title">
                     <Settings size={22} className="text-gold" />
                     Configuración
                 </h2>
-                <p className="text-gray-400">Administra los datos del sistema</p>
+                <p className="text-sm" style={{ color: 'var(--text-secondary)', marginTop: '-0.5rem' }}>Administra los datos del sistema</p>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {Object.entries(ENTITIES).map(([key, config]) => {
@@ -232,15 +232,16 @@ export default function AdminPanel() {
                             <button
                                 key={key}
                                 onClick={() => setActiveEntity(key)}
-                                className="card hover:border-gold/50 transition-colors text-left"
+                                className="card text-left"
+                                style={{ cursor: 'pointer' }}
                             >
-                                <div className="flex items-center gap-3">
-                                    <div className="p-3 rounded-lg bg-gold/10">
+                                <div className="flex flex-col sm:flex-row items-center gap-3">
+                                    <div className="w-12 h-12 rounded-xl bg-gold/10 flex items-center justify-center flex-shrink-0">
                                         <Icon size={24} className="text-gold" />
                                     </div>
-                                    <div>
-                                        <h3 className="font-semibold text-white">{config.name}</h3>
-                                        <p className="text-sm text-gray-500">Administrar</p>
+                                    <div className="text-center sm:text-left">
+                                        <h3 className="font-semibold text-white text-sm">{config.name}</h3>
+                                        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Administrar</p>
                                     </div>
                                 </div>
                             </button>
@@ -257,20 +258,20 @@ export default function AdminPanel() {
     // Form view
     if (showForm) {
         return (
-            <div className="space-y-6">
+            <div className="space-y-6 animate-fade-in max-w-lg">
                 <button
                     onClick={() => setShowForm(false)}
-                    className="flex items-center gap-2 text-gray-400 hover:text-white"
+                    className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
                 >
-                    <ChevronLeft size={20} />
+                    <ChevronLeft size={18} />
                     Volver
                 </button>
 
-                <h2 className="text-xl font-bold">
+                <h2 className="section-title">
                     {editingItem ? 'Editar' : 'Nuevo'} {config.name.slice(0, -1)}
                 </h2>
 
-                <form onSubmit={handleSave} className="space-y-4">
+                <form onSubmit={handleSave} className="space-y-5">
                     {config.fields.map((field) => (
                         <div key={field.key}>
                             <label className="label">
@@ -328,17 +329,17 @@ export default function AdminPanel() {
                         </div>
                     ))}
 
-                    <div className="flex gap-3 pt-4">
+                    <div className="flex gap-3 pt-5">
                         <button
                             type="button"
                             onClick={() => setShowForm(false)}
-                            className="flex-1 py-3 px-4 rounded-lg bg-card text-gray-300"
+                            className="btn-secondary flex-1"
                         >
                             Cancelar
                         </button>
                         <button
                             type="submit"
-                            className="flex-1 py-3 px-4 rounded-lg bg-gold text-white font-medium flex items-center justify-center gap-2"
+                            className="btn-primary flex-1 flex items-center justify-center gap-2"
                         >
                             <Save size={18} />
                             Guardar
@@ -351,25 +352,28 @@ export default function AdminPanel() {
 
     // List view
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-fade-in">
             <button
                 onClick={() => setActiveEntity(null)}
-                className="flex items-center gap-2 text-gray-400 hover:text-white"
+                className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
             >
-                <ChevronLeft size={20} />
+                <ChevronLeft size={18} />
                 Volver
             </button>
 
-            <div className="flex items-center justify-between">
+            <div className="section-header">
                 <div className="flex items-center gap-3">
-                    <Icon size={24} className="text-gold" />
-                    <h2 className="text-xl font-bold">{config.name}</h2>
+                    <div className="w-10 h-10 rounded-xl bg-gold/10 flex items-center justify-center">
+                        <Icon size={22} className="text-gold" />
+                    </div>
+                    <h2 className="text-lg font-bold">{config.name}</h2>
                 </div>
                 <button
                     onClick={handleAdd}
-                    className="flex items-center gap-2 bg-gold text-white px-4 py-2 rounded-lg font-medium"
+                    className="btn-primary flex items-center gap-2 text-sm"
+                    style={{ padding: '10px 20px' }}
                 >
-                    <Plus size={18} />
+                    <Plus size={17} />
                     Agregar
                 </button>
             </div>
@@ -379,16 +383,16 @@ export default function AdminPanel() {
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold"></div>
                 </div>
             ) : items.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
+                <p className="empty-state">
                     No hay {config.name.toLowerCase()} registrados
-                </div>
+                </p>
             ) : (
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                     {items.map((item) => (
-                        <div key={item.id} className="card flex items-center justify-between">
+                        <div key={item.id} className="card flex items-center justify-between group" style={{ padding: '16px 20px' }}>
                             <div className="flex-1 min-w-0">
-                                <h3 className="font-medium text-white truncate">{item.nombre}</h3>
-                                <div className="text-sm text-gray-500 flex flex-wrap gap-2">
+                                <h3 className="font-semibold text-white truncate text-[15px]">{item.nombre}</h3>
+                                <div className="text-sm flex flex-wrap gap-2 mt-0.5" style={{ color: 'var(--text-muted)' }}>
                                     {activeEntity === 'cajas' && (
                                         <>
                                             <span>{item.tipo}</span>
@@ -399,9 +403,9 @@ export default function AdminPanel() {
                                         </>
                                     )}
                                     {activeEntity === 'proyectos' && item.estado && (
-                                        <span className={`px-2 py-0.5 rounded text-xs ${item.estado === 'Activo' ? 'bg-green-500/20 text-green-400' :
-                                            item.estado === 'Pausado' ? 'bg-amber-500/20 text-amber-400' :
-                                                'bg-gray-500/20 text-gray-400'
+                                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${item.estado === 'Activo' ? 'bg-green-500/12 text-green-400' :
+                                            item.estado === 'Pausado' ? 'bg-amber-500/12 text-amber-400' :
+                                                'bg-gray-500/12 text-gray-400'
                                             }`}>
                                             {item.estado}
                                         </span>
@@ -414,18 +418,18 @@ export default function AdminPanel() {
                                     )}
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2 ml-4">
+                            <div className="flex items-center gap-1 ml-4 opacity-60 group-hover:opacity-100 transition-opacity">
                                 <button
                                     onClick={() => handleEdit(item)}
-                                    className="p-2 text-gray-400 hover:text-gold transition-colors"
+                                    className="p-2 text-gray-400 hover:text-gold transition-colors rounded-lg hover:bg-white/5"
                                 >
-                                    <Pencil size={18} />
+                                    <Pencil size={16} />
                                 </button>
                                 <button
                                     onClick={() => handleDelete(item)}
-                                    className="p-2 text-gray-400 hover:text-red-400 transition-colors"
+                                    className="p-2 text-gray-400 hover:text-red-400 transition-colors rounded-lg hover:bg-white/5"
                                 >
-                                    <Trash2 size={18} />
+                                    <Trash2 size={16} />
                                 </button>
                             </div>
                         </div>
