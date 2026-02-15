@@ -13,8 +13,11 @@ import {
     X
 } from 'lucide-react';
 import { db, generateUUID } from '../services/db';
+import { addToSyncQueue, processSyncQueue } from '../services/syncService';
+import { useAuth } from '../context/AuthContext';
 
 export default function DeudaCajasPanel({ onDebtChanged }) {
+    const { currentUser } = useAuth();
     const [deudas, setDeudas] = useState([]);
     const [cajas, setCajas] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -77,6 +80,19 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
         return cajas.find(c => c.id === id)?.nombre || 'Desconocida';
     }
 
+    // Format number with thousand separators (dots) for display in input
+    function formatDisplayNumber(value) {
+        if (!value && value !== 0) return '';
+        const numStr = String(value).replace(/\D/g, '');
+        if (!numStr) return '';
+        return new Intl.NumberFormat('es-CO').format(parseInt(numStr, 10));
+    }
+
+    // Parse formatted number back to raw number string
+    function parseFormattedNumber(formattedValue) {
+        return formattedValue.replace(/\./g, '');
+    }
+
     // Group debts by status
     const debtsSummary = useMemo(() => {
         const pending = deudas.filter(d => d.estado === 'PENDIENTE');
@@ -112,17 +128,79 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
             estado: 'PENDIENTE',
             descripcion: formData.descripcion || `Préstamo de ${getCajaName(formData.cajaAcreedoraId)} a ${getCajaName(formData.cajaDeudoraId)}`,
             pagos: [],
+            usuario_nombre: currentUser?.nombre || 'Desconocido',
             created_at: new Date().toISOString()
         };
 
+        // Check if lending caja has enough balance
+        const cajaAcreedora = cajas.find(c => c.id === formData.cajaAcreedoraId);
+        if (cajaAcreedora && cajaAcreedora.saldo_actual < monto) {
+            const confirmar = confirm(
+                `La caja "${cajaAcreedora.nombre}" solo tiene ${formatMoney(cajaAcreedora.saldo_actual)}. ` +
+                `¿Deseas continuar con el préstamo de ${formatMoney(monto)}? El saldo quedará negativo.`
+            );
+            if (!confirmar) return;
+        }
+
         try {
+            // 1. Save the debt record
             await db.deudas_cajas.add(newDeuda);
+            await addToSyncQueue('deudas_cajas', 'INSERT', newDeuda);
+
+            // 2. Create TRANSFERENCIA transaction (from lender to borrower)
+            const transaccion = {
+                id: generateUUID(),
+                fecha: new Date().toISOString().split('T')[0],
+                descripcion: newDeuda.descripcion || `Préstamo: ${getCajaName(formData.cajaAcreedoraId)} → ${getCajaName(formData.cajaDeudoraId)}`,
+                monto: monto,
+                tipo_movimiento: 'TRANSFERENCIA',
+                categoria: 'Préstamo entre Cajas',
+                proyecto_id: null,
+                caja_origen_id: formData.cajaAcreedoraId,  // Money leaves the lender
+                caja_destino_id: formData.cajaDeudoraId,   // Money goes to the borrower
+                tercero_id: null,
+                sincronizado: false,
+                usuario_nombre: currentUser?.nombre || 'Desconocido',
+                created_at: new Date().toISOString()
+            };
+            await db.transacciones.add(transaccion);
+            await addToSyncQueue('transacciones', 'INSERT', transaccion);
+
+            // 3. Update lender caja balance (deduct)
+            const cajaOrigen = await db.cajas.get(formData.cajaAcreedoraId);
+            if (cajaOrigen) {
+                const nuevoSaldoOrigen = (cajaOrigen.saldo_actual || 0) - monto;
+                await db.cajas.update(formData.cajaAcreedoraId, { saldo_actual: nuevoSaldoOrigen });
+                await addToSyncQueue('cajas', 'UPDATE', { ...cajaOrigen, saldo_actual: nuevoSaldoOrigen });
+            }
+
+            // 4. Update borrower caja balance (add)
+            const cajaDestino = await db.cajas.get(formData.cajaDeudoraId);
+            if (cajaDestino) {
+                const nuevoSaldoDestino = (cajaDestino.saldo_actual || 0) + monto;
+                await db.cajas.update(formData.cajaDeudoraId, { saldo_actual: nuevoSaldoDestino });
+                await addToSyncQueue('cajas', 'UPDATE', { ...cajaDestino, saldo_actual: nuevoSaldoDestino });
+            }
+
+            // 5. Sync all changes immediately if online
+            if (navigator.onLine) {
+                try {
+                    await processSyncQueue();
+                    await db.transacciones.update(transaccion.id, { sincronizado: true });
+                } catch (err) { console.log('Sync error:', err); }
+            }
+
+            // 6. Reload cajas to update local state
+            const cajasActualizadas = await db.cajas.toArray();
+            setCajas(cajasActualizadas);
+
             setDeudas([...deudas, newDeuda]);
             setFormData({ cajaDeudoraId: '', cajaAcreedoraId: '', monto: '', descripcion: '' });
             setShowForm(false);
             onDebtChanged?.();
         } catch (error) {
             console.error('Error creating debt:', error);
+            alert('Error al crear la deuda');
         }
     }
 
@@ -141,19 +219,103 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
             return;
         }
 
+        // Check if debtor caja has enough balance
+        const cajaDeudora = cajas.find(c => c.id === deuda.caja_deudora_id);
+        if (cajaDeudora && cajaDeudora.saldo_actual < amount) {
+            const confirmar = confirm(
+                `La caja deudora "${cajaDeudora.nombre}" solo tiene ${formatMoney(cajaDeudora.saldo_actual)}. ` +
+                `¿Deseas continuar con el pago de ${formatMoney(amount)}? El saldo quedará negativo.`
+            );
+            if (!confirmar) return;
+        }
+
         const newMontoPendiente = deuda.monto_pendiente - amount;
         const newEstado = newMontoPendiente === 0 ? 'PAGADA' : 'PARCIAL';
         const pagos = [...(deuda.pagos || []), {
             monto: amount,
-            fecha: new Date().toISOString()
+            fecha: new Date().toISOString(),
+            usuario_nombre: currentUser?.nombre || 'Desconocido'
         }];
 
         try {
+            // 1. Update the debt
             await db.deudas_cajas.update(deudaId, {
                 monto_pendiente: newMontoPendiente,
                 estado: newEstado,
                 pagos
             });
+
+            // 1b. Sync the debt update to Supabase
+            const updatedDeuda = await db.deudas_cajas.get(deudaId);
+            if (updatedDeuda) {
+                await addToSyncQueue('deudas_cajas', 'UPDATE', updatedDeuda);
+            }
+
+            // 2. Create TRANSFERENCIA transaction (from debtor to creditor)
+            const transaccion = {
+                id: generateUUID(),
+                fecha: new Date().toISOString().split('T')[0],
+                descripcion: `Pago deuda: ${getCajaName(deuda.caja_deudora_id)} → ${getCajaName(deuda.caja_acreedora_id)}`,
+                monto: amount,
+                tipo_movimiento: 'TRANSFERENCIA',
+                categoria: 'Pago Préstamo',
+                proyecto_id: null,
+                caja_origen_id: deuda.caja_deudora_id,
+                caja_destino_id: deuda.caja_acreedora_id,
+                tercero_id: null,
+                sincronizado: false,
+                usuario_nombre: currentUser?.nombre || 'Desconocido',
+                created_at: new Date().toISOString()
+            };
+
+            await db.transacciones.add(transaccion);
+
+            // Add to sync queue for Supabase
+            await addToSyncQueue('transacciones', 'INSERT', transaccion);
+
+            // Try to sync immediately if online, and WAIT for it to complete
+            if (navigator.onLine) {
+                try {
+                    await processSyncQueue();
+                    // Update local transaction to show as synced
+                    await db.transacciones.update(transaccion.id, { sincronizado: true });
+                } catch (err) {
+                    console.log('Sync error (will retry later):', err);
+                }
+            }
+
+            // 3. Update debtor caja balance (deduct) and sync
+            if (deuda.caja_deudora_id) {
+                const cajaOrigen = await db.cajas.get(deuda.caja_deudora_id);
+                if (cajaOrigen) {
+                    const nuevoSaldoOrigen = (cajaOrigen.saldo_actual || 0) - amount;
+                    await db.cajas.update(deuda.caja_deudora_id, { saldo_actual: nuevoSaldoOrigen });
+                    // Sync to Supabase
+                    const updatedCajaOrigen = { ...cajaOrigen, saldo_actual: nuevoSaldoOrigen };
+                    await addToSyncQueue('cajas', 'UPDATE', updatedCajaOrigen);
+                }
+            }
+
+            // 4. Update creditor caja balance (add) and sync
+            if (deuda.caja_acreedora_id) {
+                const cajaDestino = await db.cajas.get(deuda.caja_acreedora_id);
+                if (cajaDestino) {
+                    const nuevoSaldoDestino = (cajaDestino.saldo_actual || 0) + amount;
+                    await db.cajas.update(deuda.caja_acreedora_id, { saldo_actual: nuevoSaldoDestino });
+                    // Sync to Supabase
+                    const updatedCajaDestino = { ...cajaDestino, saldo_actual: nuevoSaldoDestino };
+                    await addToSyncQueue('cajas', 'UPDATE', updatedCajaDestino);
+                }
+            }
+
+            // 5. Sync caja updates immediately if online
+            if (navigator.onLine) {
+                await processSyncQueue();
+            }
+
+            // 6. Reload cajas to update local state
+            const cajasActualizadas = await db.cajas.toArray();
+            setCajas(cajasActualizadas);
 
             setDeudas(deudas.map(d =>
                 d.id === deudaId
@@ -165,6 +327,7 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
             onDebtChanged?.();
         } catch (error) {
             console.error('Error processing payment:', error);
+            alert('Error al procesar el pago');
         }
     }
 
@@ -173,10 +336,18 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
 
         try {
             await db.deudas_cajas.delete(deudaId);
+
+            // Sync deletion to Supabase
+            await addToSyncQueue('deudas_cajas', 'DELETE', { id: deudaId });
+            if (navigator.onLine) {
+                try { await processSyncQueue(); } catch (err) { console.log('Sync error:', err); }
+            }
+
             setDeudas(deudas.filter(d => d.id !== deudaId));
             onDebtChanged?.();
         } catch (error) {
             console.error('Error deleting debt:', error);
+            alert('Error al eliminar la deuda');
         }
     }
 
@@ -259,13 +430,14 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
                         <div className="relative">
                             <DollarSign size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                             <input
-                                type="number"
-                                value={formData.monto}
-                                onChange={(e) => setFormData({ ...formData, monto: e.target.value })}
+                                type="text"
+                                value={formatDisplayNumber(formData.monto)}
+                                onChange={(e) => setFormData({ ...formData, monto: parseFormattedNumber(e.target.value) })}
                                 className="input-field"
                                 style={{ paddingLeft: '40px' }}
                                 placeholder="0"
                                 required
+                                inputMode="numeric"
                             />
                         </div>
                     </div>
@@ -349,11 +521,12 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
                                     {showPaymentForm === deuda.id ? (
                                         <div className="flex gap-2">
                                             <input
-                                                type="number"
-                                                value={paymentAmount}
-                                                onChange={(e) => setPaymentAmount(e.target.value)}
+                                                type="text"
+                                                value={formatDisplayNumber(paymentAmount)}
+                                                onChange={(e) => setPaymentAmount(parseFormattedNumber(e.target.value))}
                                                 className="input-field flex-1"
-                                                placeholder="Monto a abonar"
+                                                placeholder="Monto a pagar"
+                                                inputMode="numeric"
                                             />
                                             <button
                                                 onClick={() => handlePayment(deuda.id)}

@@ -35,13 +35,14 @@ export async function processSyncQueue() {
             let result;
 
             // Prepare data for Supabase - remove local-only fields
-            const supabaseData = prepareForSupabase(datos);
+            const supabaseData = prepareForSupabase(datos, operation.tabla);
 
             console.log(`🔄 Syncing ${operation.operacion} to ${operation.tabla}:`, supabaseData);
 
             switch (operation.operacion) {
                 case 'INSERT':
-                    result = await supabase.from(operation.tabla).insert(supabaseData);
+                    // Use upsert to handle duplicates gracefully
+                    result = await supabase.from(operation.tabla).upsert(supabaseData, { onConflict: 'id' });
                     break;
                 case 'UPDATE':
                     result = await supabase.from(operation.tabla).update(supabaseData).eq('id', supabaseData.id);
@@ -69,16 +70,17 @@ export async function processSyncQueue() {
                     continue;
                 }
 
-                // 23503 = Foreign key violation (proyecto_id, tercero_id, etc. doesn't exist)
-                // Try inserting with null foreign keys
+                // 23503 = Foreign key violation - try with null foreign keys
                 if (errorCode === '23503') {
                     console.log('⚠️ Foreign key error, retrying with null foreign keys...');
                     const cleanData = { ...supabaseData };
-                    // Set potentially invalid foreign keys to null
                     if (cleanData.proyecto_id) cleanData.proyecto_id = null;
                     if (cleanData.tercero_id) cleanData.tercero_id = null;
+                    if (cleanData.empresa_id) cleanData.empresa_id = null;
+                    if (cleanData.caja_origen_id) cleanData.caja_origen_id = null;
+                    if (cleanData.caja_destino_id) cleanData.caja_destino_id = null;
 
-                    const retryResult = await supabase.from(operation.tabla).insert(cleanData);
+                    const retryResult = await supabase.from(operation.tabla).upsert(cleanData, { onConflict: 'id' });
 
                     if (!retryResult.error || retryResult.status === 409) {
                         console.log('✅ Synced with null foreign keys');
@@ -89,6 +91,19 @@ export async function processSyncQueue() {
                         syncedCount++;
                         continue;
                     }
+                }
+
+                // Permanent errors that will never succeed on retry - remove from queue
+                // 23514 = Check constraint violation (invalid enum value)
+                // 23502 = Not null violation
+                // 42xxx = Syntax/schema errors
+                // 400 = Bad request
+                const permanentErrorCodes = ['23514', '23502', '42601', '42P01', '42703'];
+                if (permanentErrorCodes.includes(errorCode) || errorStatus === 400) {
+                    console.warn(`⚠️ Permanent error (${errorCode}), removing from queue:`, result.error.message);
+                    await db.sync_queue.delete(operation.id);
+                    errors.push({ operation, error: result.error, permanent: true });
+                    continue;
                 }
 
                 console.error('❌ Sync error:', result.error);
@@ -119,21 +134,53 @@ export async function processSyncQueue() {
 }
 
 // Prepare data for Supabase (remove/convert local-only fields)
-function prepareForSupabase(data) {
+function prepareForSupabase(data, tabla = 'transacciones') {
     const prepared = { ...data };
 
     // Convert date format if needed
     if (prepared.fecha && typeof prepared.fecha === 'string') {
-        // Ensure date is in YYYY-MM-DD format
         prepared.fecha = prepared.fecha.split('T')[0];
     }
+    if (prepared.fecha_prestamo && typeof prepared.fecha_prestamo === 'string') {
+        prepared.fecha_prestamo = prepared.fecha_prestamo.split('T')[0];
+    }
+    if (prepared.fecha_deuda && typeof prepared.fecha_deuda === 'string') {
+        prepared.fecha_deuda = prepared.fecha_deuda.split('T')[0];
+    }
 
-    // Only include fields that exist in Supabase schema
-    const allowedFields = [
-        'id', 'fecha', 'descripcion', 'monto', 'tipo_movimiento', 'categoria',
-        'proyecto_id', 'caja_origen_id', 'caja_destino_id', 'tercero_id',
-        'soporte_url', 'sincronizado', 'device_id'
-    ];
+    // Fields allowed per table
+    const tableFields = {
+        transacciones: [
+            'id', 'fecha', 'descripcion', 'monto', 'tipo_movimiento', 'categoria',
+            'proyecto_id', 'caja_origen_id', 'caja_destino_id', 'tercero_id',
+            'soporte_url', 'sincronizado', 'usuario_nombre', 'device_id', 'created_at'
+        ],
+        empresas: [
+            'id', 'nombre', 'nit', 'direccion', 'telefono', 'created_at', 'updated_at'
+        ],
+        cajas: [
+            'id', 'nombre', 'tipo', 'empresa_id', 'saldo_actual',
+            'banco_nombre', 'numero_cuenta', 'created_at', 'updated_at'
+        ],
+        proyectos: [
+            'id', 'nombre', 'empresa_id', 'presupuesto_estimado', 'estado',
+            'fecha_inicio', 'fecha_fin', 'descripcion', 'created_at', 'updated_at'
+        ],
+        terceros: [
+            'id', 'nombre', 'tipo', 'nit_cedula', 'telefono', 'email',
+            'direccion', 'created_at', 'updated_at'
+        ],
+        deudas_cajas: [
+            'id', 'caja_deudora_id', 'caja_acreedora_id', 'monto_original',
+            'monto_pendiente', 'fecha_prestamo', 'estado', 'pagos', 'created_at'
+        ],
+        deudas_terceros: [
+            'id', 'tercero_id', 'proyecto_id', 'empresa_id', 'monto_original',
+            'monto_pendiente', 'fecha_deuda', 'estado', 'descripcion', 'pagos', 'created_at'
+        ]
+    };
+
+    const allowedFields = tableFields[tabla] || tableFields.transacciones;
 
     const result = {};
     for (const field of allowedFields) {
@@ -142,8 +189,10 @@ function prepareForSupabase(data) {
         }
     }
 
-    // Set sincronizado to true for Supabase
-    result.sincronizado = true;
+    // Set sincronizado to true for transacciones
+    if (tabla === 'transacciones') {
+        result.sincronizado = true;
+    }
 
     return result;
 }
@@ -191,11 +240,17 @@ export async function createTransaction(transactionData) {
 }
 
 // Update caja balance locally
+// Update caja balance locally and queue for sync
 async function updateCajaBalance(cajaId, amount) {
     const caja = await db.cajas.get(cajaId);
     if (caja) {
-        const newBalance = (caja.saldo_actual || 0) + amount;
+        const newBalance = (parseFloat(caja.saldo_actual) || 0) + amount;
+
+        // Update local DB
         await db.cajas.update(cajaId, { saldo_actual: newBalance });
+
+        // Add to sync queue
+        await addToSyncQueue('cajas', 'UPDATE', { id: cajaId, saldo_actual: newBalance });
     }
 }
 
@@ -263,11 +318,186 @@ export async function forceSync() {
     return await processSyncQueue();
 }
 
+// Update transaction with offline support
+export async function updateTransaction(id, updateData) {
+    const original = await db.transacciones.get(id);
+    if (!original) return null;
+
+    const updatedTransaction = { ...original, ...updateData, updated_at: new Date().toISOString() };
+    await db.transacciones.update(id, updateData);
+
+    // Add to sync queue
+    await addToSyncQueue('transacciones', 'UPDATE', updatedTransaction);
+
+    // Try to sync immediately if online
+    if (navigator.onLine) {
+        await processSyncQueue();
+    }
+
+    return updatedTransaction;
+}
+
+// Delete transaction with offline support (reverses caja balances)
+export async function deleteTransaction(transactionData) {
+    const t = transactionData;
+
+    // Reverse the balance changes locally
+    if (t.tipo_movimiento === 'INGRESO' && t.caja_origen_id) {
+        await updateCajaBalanceWithSync(t.caja_origen_id, -t.monto);
+    } else if (t.tipo_movimiento === 'EGRESO' && t.caja_origen_id) {
+        await updateCajaBalanceWithSync(t.caja_origen_id, t.monto);
+    } else if (t.tipo_movimiento === 'TRANSFERENCIA') {
+        if (t.caja_origen_id) {
+            await updateCajaBalanceWithSync(t.caja_origen_id, t.monto);
+        }
+        if (t.caja_destino_id) {
+            await updateCajaBalanceWithSync(t.caja_destino_id, -t.monto);
+        }
+    }
+
+    // Delete from local DB
+    await db.transacciones.delete(t.id);
+
+    // Add to sync queue
+    await addToSyncQueue('transacciones', 'DELETE', { id: t.id });
+
+    // Try to sync immediately if online
+    if (navigator.onLine) {
+        await processSyncQueue();
+    }
+}
+
+// Update caja balance with sync queue support
+async function updateCajaBalanceWithSync(cajaId, amount) {
+    if (!cajaId) return;
+    const caja = await db.cajas.get(cajaId);
+    if (caja) {
+        const newBalance = (caja.saldo_actual || 0) + amount;
+        await db.cajas.update(cajaId, { saldo_actual: newBalance });
+
+        // Add balance update to sync queue
+        await addToSyncQueue('cajas', 'UPDATE', { id: cajaId, saldo_actual: newBalance });
+    }
+}
+
+// Delete any entity with offline support (for AdminPanel)
+export async function deleteEntity(tabla, id) {
+    // Delete from local DB
+    await db[tabla].delete(id);
+
+    // Add to sync queue
+    await addToSyncQueue(tabla, 'DELETE', { id });
+
+    // Try to sync immediately if online
+    if (navigator.onLine) {
+        await processSyncQueue();
+    }
+}
+
+// ============== DEUDAS CAJAS (Inter-box debts) ==============
+
+// Create inter-box debt with sync support
+export async function createDeudaCajas(deudaData) {
+    const id = generateUUID();
+    const now = new Date().toISOString();
+
+    const deuda = {
+        id,
+        ...deudaData,
+        pagos: deudaData.pagos || [],
+        created_at: now
+    };
+
+    // Save locally
+    await db.deudas_cajas.add(deuda);
+
+    // Add to sync queue
+    await addToSyncQueue('deudas_cajas', 'INSERT', deuda);
+
+    // Try to sync immediately if online
+    if (navigator.onLine) {
+        await processSyncQueue();
+    }
+
+    return deuda;
+}
+
+// Update inter-box debt with sync support
+export async function updateDeudaCajas(id, updateData) {
+    const deuda = await db.deudas_cajas.get(id);
+    if (!deuda) return null;
+
+    const updatedDeuda = { ...deuda, ...updateData };
+    await db.deudas_cajas.update(id, updateData);
+
+    // Add to sync queue
+    await addToSyncQueue('deudas_cajas', 'UPDATE', updatedDeuda);
+
+    if (navigator.onLine) {
+        await processSyncQueue();
+    }
+
+    return updatedDeuda;
+}
+
+// ============== DEUDAS TERCEROS (Supplier debts) ==============
+
+// Create supplier debt with sync support
+export async function createDeudaTerceros(deudaData) {
+    const id = generateUUID();
+    const now = new Date().toISOString();
+
+    const deuda = {
+        id,
+        ...deudaData,
+        pagos: deudaData.pagos || [],
+        created_at: now
+    };
+
+    // Save locally
+    await db.deudas_terceros.add(deuda);
+
+    // Add to sync queue
+    await addToSyncQueue('deudas_terceros', 'INSERT', deuda);
+
+    // Try to sync immediately if online
+    if (navigator.onLine) {
+        await processSyncQueue();
+    }
+
+    return deuda;
+}
+
+// Update supplier debt with sync support
+export async function updateDeudaTerceros(id, updateData) {
+    const deuda = await db.deudas_terceros.get(id);
+    if (!deuda) return null;
+
+    const updatedDeuda = { ...deuda, ...updateData };
+    await db.deudas_terceros.update(id, updateData);
+
+    // Add to sync queue
+    await addToSyncQueue('deudas_terceros', 'UPDATE', updatedDeuda);
+
+    if (navigator.onLine) {
+        await processSyncQueue();
+    }
+
+    return updatedDeuda;
+}
+
 export default {
     createTransaction,
+    updateTransaction,
+    deleteTransaction,
+    deleteEntity,
     getTransactions,
     getPendingSyncCount,
     processSyncQueue,
     getIntercajaDebts,
-    forceSync
+    forceSync,
+    createDeudaCajas,
+    updateDeudaCajas,
+    createDeudaTerceros,
+    updateDeudaTerceros
 };

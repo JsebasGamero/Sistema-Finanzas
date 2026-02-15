@@ -22,11 +22,16 @@ import {
     PieChart,
     FileText,
     CreditCard,
-    History
+    History,
+    Tag,
+    User,
+    Image as ImageIcon
 } from 'lucide-react';
 import { db } from '../services/db';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import ImagePreviewModal from './ImagePreviewModal';
+import TablaReport from './TablaReport';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     PieChart as RechartsPie, Pie, Cell, Legend,
@@ -40,7 +45,8 @@ const REPORT_TYPES = [
     { id: 'cajas', name: 'Saldo Cajas', icon: Wallet },
     { id: 'proyectos', name: 'Por Proyecto', icon: FolderOpen },
     { id: 'deudas', name: 'Deudas', icon: CreditCard },
-    { id: 'resumen', name: 'Resumen', icon: PieChart }
+    { id: 'resumen', name: 'Resumen', icon: PieChart },
+    { id: 'tabla', name: 'Tabla Excel', icon: BarChart3 }
 ];
 
 export default function ReportsPanel() {
@@ -55,6 +61,7 @@ export default function ReportsPanel() {
     const [empresas, setEmpresas] = useState([]);
     const [deudasTerceros, setDeudasTerceros] = useState([]);
     const [deudasCajas, setDeudasCajas] = useState([]);
+    const [categorias, setCategorias] = useState([]);
 
     // Filters
     const [searchTerm, setSearchTerm] = useState('');
@@ -65,6 +72,7 @@ export default function ReportsPanel() {
     const [filterProyecto, setFilterProyecto] = useState('');
     const [filterTercero, setFilterTercero] = useState('');
     const [filterEmpresa, setFilterEmpresa] = useState('');
+    const [filterUsuario, setFilterUsuario] = useState('');
     const [showFilters, setShowFilters] = useState(false);
 
     // Sorting
@@ -78,18 +86,20 @@ export default function ReportsPanel() {
     async function loadAllData() {
         setLoading(true);
         try {
-            const [trans, terc, caj, proy, emp] = await Promise.all([
+            const [trans, terc, caj, proy, emp, cats] = await Promise.all([
                 db.transacciones.toArray(),
                 db.terceros.toArray(),
                 db.cajas.toArray(),
                 db.proyectos.toArray(),
-                db.empresas.toArray()
+                db.empresas.toArray(),
+                db.categorias.toArray()
             ]);
             setTransacciones(trans);
             setTerceros(terc);
             setCajas(caj);
             setProyectos(proy);
             setEmpresas(emp);
+            setCategorias(cats);
 
             // Load deudas terceros (supplier debts)
             if (db.deudas_terceros) {
@@ -151,6 +161,12 @@ export default function ReportsPanel() {
         return empresas.find(e => e.id === id)?.nombre || '-';
     }
 
+    function getCategoryName(catId) {
+        if (!catId) return '-';
+        if (!catId.includes('-')) return catId;
+        return categorias.find(c => c.id === catId)?.nombre || catId;
+    }
+
     // Filter transactions
     const filteredTransactions = useMemo(() => {
         let filtered = [...transacciones];
@@ -196,6 +212,11 @@ export default function ReportsPanel() {
             filtered = filtered.filter(t => t.tercero_id === filterTercero);
         }
 
+        // Usuario
+        if (filterUsuario) {
+            filtered = filtered.filter(t => t.usuario_nombre === filterUsuario);
+        }
+
         // Sort
         filtered.sort((a, b) => {
             let aVal = a[sortField];
@@ -211,14 +232,14 @@ export default function ReportsPanel() {
         });
 
         return filtered;
-    }, [transacciones, searchTerm, dateFrom, dateTo, filterTipo, filterCaja, filterProyecto, filterTercero, sortField, sortDirection]);
+    }, [transacciones, searchTerm, dateFrom, dateTo, filterTipo, filterCaja, filterProyecto, filterTercero, filterUsuario, sortField, sortDirection]);
 
-    // Calculate provider balances
+    // Calculate provider balances (exclude debt payments to avoid double counting)
     const providerBalances = useMemo(() => {
         const balances = {};
 
         transacciones
-            .filter(t => t.tercero_id && t.tipo_movimiento === 'EGRESO')
+            .filter(t => t.tercero_id && t.tipo_movimiento === 'EGRESO' && t.categoria !== 'Pago Deuda')
             .forEach(t => {
                 if (!balances[t.tercero_id]) {
                     balances[t.tercero_id] = {
@@ -254,15 +275,18 @@ export default function ReportsPanel() {
                         id: t.proyecto_id,
                         total: 0,
                         count: 0,
-                        byCategory: {}
+                        byCategory: {},
+                        transactions: []
                     };
                 }
                 expenses[t.proyecto_id].total += t.monto;
                 expenses[t.proyecto_id].count++;
+                expenses[t.proyecto_id].transactions.push(t);
 
-                const cat = t.categoria || 'Sin categoría';
-                expenses[t.proyecto_id].byCategory[cat] =
-                    (expenses[t.proyecto_id].byCategory[cat] || 0) + t.monto;
+                // Resolve category name (could be UUID or plain text)
+                const catName = getCategoryName(t.categoria);
+                expenses[t.proyecto_id].byCategory[catName] =
+                    (expenses[t.proyecto_id].byCategory[catName] || 0) + t.monto;
             });
 
         return Object.values(expenses)
@@ -272,7 +296,7 @@ export default function ReportsPanel() {
             }))
             .filter(e => e.proyecto)
             .sort((a, b) => b.total - a.total);
-    }, [transacciones, proyectos]);
+    }, [transacciones, proyectos, categorias]);
 
     // Calculate summary stats
     const summaryStats = useMemo(() => {
@@ -288,7 +312,7 @@ export default function ReportsPanel() {
             .filter(t => t.tipo_movimiento === 'TRANSFERENCIA')
             .reduce((sum, t) => sum + t.monto, 0);
 
-        const saldoTotal = cajas.reduce((sum, c) => sum + (c.saldo_actual || 0), 0);
+        const saldoTotal = cajas.reduce((sum, c) => sum + (parseFloat(c.saldo_actual) || 0), 0);
 
         const byCategory = {};
         transacciones
@@ -414,6 +438,7 @@ export default function ReportsPanel() {
         setFilterCaja('');
         setFilterProyecto('');
         setFilterTercero('');
+        setFilterUsuario('');
     }
 
     if (loading) {
@@ -425,16 +450,17 @@ export default function ReportsPanel() {
     }
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-6 animate-fade-in">
             {/* Header */}
-            <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold flex items-center gap-2">
+            <div className="section-header">
+                <h2 className="section-title">
                     <BarChart3 size={22} className="text-gold" />
                     Reportes
                 </h2>
                 <button
                     onClick={exportToPDF}
-                    className="flex items-center gap-2 bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-medium"
+                    className="flex items-center gap-2 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all"
+                    style={{ background: 'linear-gradient(135deg, #dc2626, #b91c1c)', boxShadow: '0 4px 12px -2px rgba(220,38,38,0.3)' }}
                 >
                     <FileText size={16} />
                     Exportar PDF
@@ -442,7 +468,7 @@ export default function ReportsPanel() {
             </div>
 
             {/* Report Type Tabs */}
-            <div className="flex gap-2 overflow-x-auto pb-2">
+            <div className="flex gap-2.5 overflow-x-auto pb-2">
                 {REPORT_TYPES.map(report => {
                     const Icon = report.icon;
                     const isActive = activeReport === report.id;
@@ -450,10 +476,7 @@ export default function ReportsPanel() {
                         <button
                             key={report.id}
                             onClick={() => setActiveReport(report.id)}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-lg whitespace-nowrap text-sm font-medium transition-colors ${isActive
-                                ? 'bg-gold text-white'
-                                : 'bg-card text-gray-400 hover:text-white'
-                                }`}
+                            className={`tab-pill flex items-center gap-2 ${isActive ? 'active' : ''}`}
                         >
                             <Icon size={16} />
                             {report.name}
@@ -462,125 +485,142 @@ export default function ReportsPanel() {
                 })}
             </div>
 
-            {/* Search and Filters */}
-            <div className="space-y-3">
-                <div className="flex gap-2">
-                    <div className="relative flex-1">
-                        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input
-                            type="text"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            placeholder="Buscar por descripción, categoría, caja..."
-                            className="input-field"
-                            style={{ paddingLeft: '40px' }}
-                        />
-                    </div>
-                    <button
-                        onClick={() => setShowFilters(!showFilters)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium ${showFilters ? 'bg-gold text-white' : 'bg-card text-gray-400'
-                            }`}
-                    >
-                        <Filter size={18} />
-                        Filtros
-                    </button>
-                </div>
-
-                {showFilters && (
-                    <div className="card space-y-3">
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                            {/* Date From */}
-                            <div>
-                                <label className="label">Desde</label>
-                                <input
-                                    type="date"
-                                    value={dateFrom}
-                                    onChange={(e) => setDateFrom(e.target.value)}
-                                    className="input-field"
-                                />
-                            </div>
-
-                            {/* Date To */}
-                            <div>
-                                <label className="label">Hasta</label>
-                                <input
-                                    type="date"
-                                    value={dateTo}
-                                    onChange={(e) => setDateTo(e.target.value)}
-                                    className="input-field"
-                                />
-                            </div>
-
-                            {/* Type */}
-                            <div>
-                                <label className="label">Tipo</label>
-                                <select
-                                    value={filterTipo}
-                                    onChange={(e) => setFilterTipo(e.target.value)}
-                                    className="input-field"
-                                >
-                                    <option value="">Todos</option>
-                                    <option value="INGRESO">Ingresos</option>
-                                    <option value="EGRESO">Egresos</option>
-                                    <option value="TRANSFERENCIA">Transferencias</option>
-                                </select>
-                            </div>
-
-                            {/* Caja */}
-                            <div>
-                                <label className="label">Caja</label>
-                                <select
-                                    value={filterCaja}
-                                    onChange={(e) => setFilterCaja(e.target.value)}
-                                    className="input-field"
-                                >
-                                    <option value="">Todas</option>
-                                    {cajas.map(c => (
-                                        <option key={c.id} value={c.id}>{c.nombre}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            {/* Proyecto */}
-                            <div>
-                                <label className="label">Proyecto</label>
-                                <select
-                                    value={filterProyecto}
-                                    onChange={(e) => setFilterProyecto(e.target.value)}
-                                    className="input-field"
-                                >
-                                    <option value="">Todos</option>
-                                    {proyectos.map(p => (
-                                        <option key={p.id} value={p.id}>{p.nombre}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            {/* Tercero */}
-                            <div>
-                                <label className="label">Proveedor</label>
-                                <select
-                                    value={filterTercero}
-                                    onChange={(e) => setFilterTercero(e.target.value)}
-                                    className="input-field"
-                                >
-                                    <option value="">Todos</option>
-                                    {terceros.map(t => (
-                                        <option key={t.id} value={t.id}>{t.nombre}</option>
-                                    ))}
-                                </select>
-                            </div>
+            {/* Search and Filters - hidden for tabla view which has its own */}
+            {activeReport !== 'tabla' && (
+                <div className="space-y-3">
+                    <div className="flex gap-2">
+                        <div className="relative flex-1">
+                            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input
+                                type="text"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                placeholder="Buscar por descripción, categoría, caja..."
+                                className="input-field"
+                                style={{ paddingLeft: '40px' }}
+                            />
                         </div>
-
                         <button
-                            onClick={clearFilters}
-                            className="text-sm text-gold hover:underline"
+                            onClick={() => setShowFilters(!showFilters)}
+                            className={`tab-pill flex items-center gap-2 ${showFilters ? 'active' : ''}`}
+                            style={{ borderRadius: 'var(--radius-md)' }}
                         >
-                            Limpiar filtros
+                            <Filter size={16} />
+                            Filtros
                         </button>
                     </div>
-                )}
-            </div>
+
+                    {showFilters && (
+                        <div className="card space-y-3">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                {/* Date From */}
+                                <div>
+                                    <label className="label">Desde</label>
+                                    <input
+                                        type="date"
+                                        value={dateFrom}
+                                        onChange={(e) => setDateFrom(e.target.value)}
+                                        className="input-field"
+                                    />
+                                </div>
+
+                                {/* Date To */}
+                                <div>
+                                    <label className="label">Hasta</label>
+                                    <input
+                                        type="date"
+                                        value={dateTo}
+                                        onChange={(e) => setDateTo(e.target.value)}
+                                        className="input-field"
+                                    />
+                                </div>
+
+                                {/* Type */}
+                                <div>
+                                    <label className="label">Tipo</label>
+                                    <select
+                                        value={filterTipo}
+                                        onChange={(e) => setFilterTipo(e.target.value)}
+                                        className="input-field"
+                                    >
+                                        <option value="">Todos</option>
+                                        <option value="INGRESO">Ingresos</option>
+                                        <option value="EGRESO">Egresos</option>
+                                        <option value="TRANSFERENCIA">Transferencias</option>
+                                    </select>
+                                </div>
+
+                                {/* Caja */}
+                                <div>
+                                    <label className="label">Caja</label>
+                                    <select
+                                        value={filterCaja}
+                                        onChange={(e) => setFilterCaja(e.target.value)}
+                                        className="input-field"
+                                    >
+                                        <option value="">Todas</option>
+                                        {cajas.map(c => (
+                                            <option key={c.id} value={c.id}>{c.nombre}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Proyecto */}
+                                <div>
+                                    <label className="label">Proyecto</label>
+                                    <select
+                                        value={filterProyecto}
+                                        onChange={(e) => setFilterProyecto(e.target.value)}
+                                        className="input-field"
+                                    >
+                                        <option value="">Todos</option>
+                                        {proyectos.map(p => (
+                                            <option key={p.id} value={p.id}>{p.nombre}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Tercero */}
+                                <div>
+                                    <label className="label">Proveedor</label>
+                                    <select
+                                        value={filterTercero}
+                                        onChange={(e) => setFilterTercero(e.target.value)}
+                                        className="input-field"
+                                    >
+                                        <option value="">Todos</option>
+                                        {terceros.map(t => (
+                                            <option key={t.id} value={t.id}>{t.nombre}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Usuario */}
+                                <div>
+                                    <label className="label">Usuario</label>
+                                    <select
+                                        value={filterUsuario}
+                                        onChange={(e) => setFilterUsuario(e.target.value)}
+                                        className="input-field"
+                                    >
+                                        <option value="">Todos</option>
+                                        {[...new Set(transacciones.map(t => t.usuario_nombre).filter(Boolean))].map(u => (
+                                            <option key={u} value={u}>{u}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={clearFilters}
+                                className="text-sm text-gold hover:underline"
+                            >
+                                Limpiar filtros
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Active Report Content */}
             {activeReport === 'movimientos' && (
@@ -589,6 +629,7 @@ export default function ReportsPanel() {
                     getCajaName={getCajaName}
                     getTerceroName={getTerceroName}
                     getProyectoName={getProyectoName}
+                    getCategoryName={getCategoryName}
                     formatMoney={formatMoney}
                     formatDate={formatDate}
                     sortField={sortField}
@@ -603,6 +644,10 @@ export default function ReportsPanel() {
                     deudasTerceros={deudasTerceros}
                     terceros={terceros}
                     formatMoney={formatMoney}
+                    formatDate={formatDate}
+                    getCategoryName={getCategoryName}
+                    getCajaName={getCajaName}
+                    getProyectoName={getProyectoName}
                 />
             )}
 
@@ -619,6 +664,10 @@ export default function ReportsPanel() {
                 <ProyectosReport
                     projectExpenses={projectExpenses}
                     formatMoney={formatMoney}
+                    formatDate={formatDate}
+                    getCajaName={getCajaName}
+                    getTerceroName={getTerceroName}
+                    getCategoryName={getCategoryName}
                 />
             )}
 
@@ -640,13 +689,18 @@ export default function ReportsPanel() {
                     transacciones={transacciones}
                 />
             )}
+
+            {activeReport === 'tabla' && (
+                <TablaReport />
+            )}
         </div>
     );
 }
 
 // Movimientos Report Component - Expandable cards with full details
-function MovimientosReport({ transactions, getCajaName, getTerceroName, getProyectoName, getEmpresaName, formatMoney, formatDate, sortField, sortDirection, onSort }) {
+function MovimientosReport({ transactions, getCajaName, getTerceroName, getProyectoName, getEmpresaName, getCategoryName, formatMoney, formatDate, sortField, sortDirection, onSort }) {
     const [expandedId, setExpandedId] = useState(null);
+    const [previewImage, setPreviewImage] = useState(null);
     const SortIcon = sortDirection === 'asc' ? ChevronUp : ChevronDown;
 
     return (
@@ -694,7 +748,7 @@ function MovimientosReport({ transactions, getCajaName, getTerceroName, getProye
                                     </div>
                                     <div className="text-left">
                                         <p className="font-medium text-white text-sm">
-                                            {t.descripcion || t.categoria || t.tipo_movimiento}
+                                            {t.descripcion || getCategoryName(t.categoria) || t.tipo_movimiento}
                                         </p>
                                         <p className="text-xs text-gray-500">{formatDate(t.fecha)}</p>
                                     </div>
@@ -710,90 +764,127 @@ function MovimientosReport({ transactions, getCajaName, getTerceroName, getProye
                             </button>
 
                             {expandedId === t.id && (
-                                <div className="mt-3 pt-3 border-t border-white/10 grid grid-cols-2 gap-3 text-sm">
-                                    {/* Tipo */}
-                                    <div>
-                                        <p className="text-xs text-gray-500">Tipo</p>
-                                        <p className={`font-medium ${t.tipo_movimiento === 'INGRESO' ? 'text-green-400' :
-                                            t.tipo_movimiento === 'EGRESO' ? 'text-red-400' : 'text-blue-400'
-                                            }`}>{t.tipo_movimiento}</p>
-                                    </div>
-
-                                    {/* Categoría */}
-                                    <div>
-                                        <p className="text-xs text-gray-500">Categoría</p>
-                                        <p className="text-gray-300">{t.categoria || '-'}</p>
-                                    </div>
-
-                                    {/* Caja Origen */}
-                                    <div>
-                                        <p className="text-xs text-gray-500">Caja {t.tipo_movimiento === 'TRANSFERENCIA' ? 'Origen' : ''}</p>
-                                        <p className="text-gray-300">{getCajaName(t.caja_origen_id)}</p>
-                                    </div>
-
-                                    {/* Caja Destino (solo transferencias) */}
-                                    {t.tipo_movimiento === 'TRANSFERENCIA' && t.caja_destino_id && (
+                                <div className="mt-3 pt-3 border-t border-white/10 space-y-3">
+                                    <div className="grid grid-cols-2 gap-3 text-sm">
+                                        {/* Tipo */}
                                         <div>
-                                            <p className="text-xs text-gray-500">Caja Destino</p>
-                                            <p className="text-gray-300">{getCajaName(t.caja_destino_id)}</p>
-                                        </div>
-                                    )}
-
-                                    {/* Tercero */}
-                                    {t.tercero_id && (
-                                        <div>
-                                            <p className="text-xs text-gray-500">Proveedor / Beneficiario</p>
-                                            <p className="text-gray-300">{getTerceroName(t.tercero_id)}</p>
-                                        </div>
-                                    )}
-
-                                    {/* Proyecto */}
-                                    {t.proyecto_id && (
-                                        <div>
-                                            <p className="text-xs text-gray-500">Proyecto / Obra</p>
-                                            <p className="text-gray-300">{getProyectoName(t.proyecto_id)}</p>
-                                        </div>
-                                    )}
-
-                                    {/* Empresa */}
-                                    {t.empresa_id && (
-                                        <div>
-                                            <p className="text-xs text-gray-500">Empresa</p>
-                                            <p className="text-gray-300">{getEmpresaName ? getEmpresaName(t.empresa_id) : t.empresa_id}</p>
-                                        </div>
-                                    )}
-
-                                    {/* Descripción completa */}
-                                    {t.descripcion && (
-                                        <div className="col-span-2">
-                                            <p className="text-xs text-gray-500">Descripción</p>
-                                            <p className="text-gray-300">{t.descripcion}</p>
-                                        </div>
-                                    )}
-
-                                    {/* Monto grande */}
-                                    <div className="col-span-2 mt-2 pt-2 border-t border-white/5">
-                                        <div className="flex justify-between items-center">
-                                            <p className="text-xs text-gray-500">Monto Total</p>
-                                            <p className={`text-xl font-bold ${t.tipo_movimiento === 'INGRESO' ? 'text-green-400' :
+                                            <p className="text-xs text-gray-500">Tipo</p>
+                                            <p className={`font-medium ${t.tipo_movimiento === 'INGRESO' ? 'text-green-400' :
                                                 t.tipo_movimiento === 'EGRESO' ? 'text-red-400' : 'text-blue-400'
-                                                }`}>
-                                                {formatMoney(t.monto)}
-                                            </p>
+                                                }`}>{t.tipo_movimiento}</p>
+                                        </div>
+
+                                        {/* Categoría */}
+                                        <div>
+                                            <p className="text-xs text-gray-500">Categoría</p>
+                                            <p className="text-gray-300">{getCategoryName(t.categoria)}</p>
+                                        </div>
+
+                                        {/* Caja Origen */}
+                                        <div>
+                                            <p className="text-xs text-gray-500">Caja {t.tipo_movimiento === 'TRANSFERENCIA' ? 'Origen' : ''}</p>
+                                            <p className="text-gray-300">{getCajaName(t.caja_origen_id)}</p>
+                                        </div>
+
+                                        {/* Caja Destino (solo transferencias) */}
+                                        {t.tipo_movimiento === 'TRANSFERENCIA' && t.caja_destino_id && (
+                                            <div>
+                                                <p className="text-xs text-gray-500">Caja Destino</p>
+                                                <p className="text-gray-300">{getCajaName(t.caja_destino_id)}</p>
+                                            </div>
+                                        )}
+
+                                        {/* Tercero */}
+                                        {t.tercero_id && (
+                                            <div>
+                                                <p className="text-xs text-gray-500">Proveedor / Beneficiario</p>
+                                                <p className="text-gray-300">{getTerceroName(t.tercero_id)}</p>
+                                            </div>
+                                        )}
+
+                                        {/* Proyecto */}
+                                        {t.proyecto_id && (
+                                            <div>
+                                                <p className="text-xs text-gray-500">Proyecto / Obra</p>
+                                                <p className="text-gray-300">{getProyectoName(t.proyecto_id)}</p>
+                                            </div>
+                                        )}
+
+                                        {/* Empresa */}
+                                        {t.empresa_id && (
+                                            <div>
+                                                <p className="text-xs text-gray-500">Empresa</p>
+                                                <p className="text-gray-300">{getEmpresaName ? getEmpresaName(t.empresa_id) : t.empresa_id}</p>
+                                            </div>
+                                        )}
+
+                                        {/* Descripción completa */}
+                                        {t.descripcion && (
+                                            <div className="col-span-2">
+                                                <p className="text-xs text-gray-500">Descripción</p>
+                                                <p className="text-gray-300">{t.descripcion}</p>
+                                            </div>
+                                        )}
+
+                                        {/* Usuario que registró */}
+                                        {t.usuario_nombre && (
+                                            <div>
+                                                <p className="text-xs text-gray-500">Registrado por</p>
+                                                <p className="text-amber-400 font-medium">{t.usuario_nombre}</p>
+                                            </div>
+                                        )}
+
+                                        {/* Editado por */}
+                                        {t.editado_por && (
+                                            <div>
+                                                <p className="text-xs text-gray-500">Editado por</p>
+                                                <p className="text-orange-400 font-medium">{t.editado_por}</p>
+                                            </div>
+                                        )}
+
+                                        {/* Monto grande */}
+                                        <div className="col-span-2 mt-2 pt-2 border-t border-white/5">
+                                            <div className="flex justify-between items-center">
+                                                <p className="text-xs text-gray-500">Monto Total</p>
+                                                <p className={`text-xl font-bold ${t.tipo_movimiento === 'INGRESO' ? 'text-green-400' :
+                                                    t.tipo_movimiento === 'EGRESO' ? 'text-red-400' : 'text-blue-400'
+                                                    }`}>
+                                                    {formatMoney(t.monto)}
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
+
+                                    {t.soporte_url && (
+                                        <button
+                                            onClick={() => setPreviewImage({ url: t.soporte_url, title: t.descripcion })}
+                                            className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors text-sm font-medium"
+                                        >
+                                            <ImageIcon size={16} />
+                                            Ver soporte adjunto
+                                        </button>
+                                    )}
                                 </div>
                             )}
                         </div>
                     ))}
                 </div>
             )}
+
+            {/* Image Preview Modal */}
+            <ImagePreviewModal
+                isOpen={!!previewImage}
+                onClose={() => setPreviewImage(null)}
+                imageUrl={previewImage?.url}
+                title={previewImage?.title}
+            />
         </div>
     );
 }
 
 // Proveedores Report Component - Merged with debts data
-function ProveedoresReport({ providerBalances, deudasTerceros, terceros, formatMoney }) {
+// Proveedores Report Component - Merged with debts data
+function ProveedoresReport({ providerBalances, deudasTerceros, terceros, formatMoney, formatDate, getCategoryName, getCajaName, getProyectoName }) {
     const [expandedId, setExpandedId] = useState(null);
 
     // Merge payment data with debt data per provider
@@ -958,15 +1049,24 @@ function ProveedoresReport({ providerBalances, deudasTerceros, terceros, formatM
                                         </div>
                                     )}
 
-                                    {/* Recent Direct Payments */}
+                                    {/* Full Transaction List */}
                                     {item.transactions.length > 0 && (
                                         <div>
-                                            <p className="text-xs text-gray-500 mb-2">Últimos pagos directos:</p>
-                                            <div className="space-y-1">
-                                                {item.transactions.slice(0, 5).map((t, idx) => (
-                                                    <div key={idx} className="flex justify-between text-sm">
-                                                        <span className="text-gray-400">{t.categoria || t.descripcion || 'Pago'}</span>
-                                                        <span className="text-green-400">{formatMoney(t.monto)}</span>
+                                            <p className="text-xs text-gray-500 mb-2">Detalle de movimientos ({item.transactions.length}):</p>
+                                            <div className="space-y-2 max-h-80 overflow-y-auto">
+                                                {item.transactions.map((t, idx) => (
+                                                    <div key={idx} className="bg-secondary/30 rounded-lg p-3 text-sm">
+                                                        <div className="flex justify-between items-start mb-1">
+                                                            <span className="text-white font-medium">{t.descripcion || 'Sin descripción'}</span>
+                                                            <span className="text-red-400 font-bold whitespace-nowrap ml-2">{formatMoney(t.monto)}</span>
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400">
+                                                            <span className="flex items-center gap-1"><Calendar size={11} /> {formatDate(t.fecha)}</span>
+                                                            {t.categoria && <span className="flex items-center gap-1"><Tag size={11} /> {getCategoryName(t.categoria)}</span>}
+                                                            {t.caja_origen_id && <span className="flex items-center gap-1"><Wallet size={11} /> {getCajaName(t.caja_origen_id)}</span>}
+                                                            {t.proyecto_id && <span className="flex items-center gap-1"><FolderOpen size={11} /> {getProyectoName(t.proyecto_id)}</span>}
+                                                            {t.usuario_nombre && <span className="flex items-center gap-1"><User size={11} /> {t.usuario_nombre}</span>}
+                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>
@@ -988,10 +1088,11 @@ function ProveedoresReport({ providerBalances, deudasTerceros, terceros, formatM
     );
 }
 
+
 // Cajas Report Component
 function CajasReport({ cajas, empresas, formatMoney, getEmpresaName }) {
-    const totalPositivo = cajas.filter(c => c.saldo_actual > 0).reduce((s, c) => s + c.saldo_actual, 0);
-    const totalNegativo = cajas.filter(c => c.saldo_actual < 0).reduce((s, c) => s + c.saldo_actual, 0);
+    const totalPositivo = cajas.filter(c => parseFloat(c.saldo_actual) > 0).reduce((s, c) => s + (parseFloat(c.saldo_actual) || 0), 0);
+    const totalNegativo = cajas.filter(c => parseFloat(c.saldo_actual) < 0).reduce((s, c) => s + (parseFloat(c.saldo_actual) || 0), 0);
 
     // Group by empresa
     const byEmpresa = {};
@@ -1001,7 +1102,7 @@ function CajasReport({ cajas, empresas, formatMoney, getEmpresaName }) {
             byEmpresa[empId] = { cajas: [], total: 0 };
         }
         byEmpresa[empId].cajas.push(c);
-        byEmpresa[empId].total += c.saldo_actual || 0;
+        byEmpresa[empId].total += (parseFloat(c.saldo_actual) || 0);
     });
 
     return (
@@ -1059,7 +1160,7 @@ function CajasReport({ cajas, empresas, formatMoney, getEmpresaName }) {
 }
 
 // Proyectos Report Component
-function ProyectosReport({ projectExpenses, formatMoney }) {
+function ProyectosReport({ projectExpenses, formatMoney, formatDate, getCajaName, getTerceroName, getCategoryName }) {
     const [expandedId, setExpandedId] = useState(null);
 
     return (
@@ -1104,18 +1205,45 @@ function ProyectosReport({ projectExpenses, formatMoney }) {
                             </button>
 
                             {expandedId === item.id && (
-                                <div className="mt-4 pt-4 border-t border-white/10">
-                                    <p className="text-xs text-gray-500 mb-2">Por categoría:</p>
-                                    <div className="space-y-1">
-                                        {Object.entries(item.byCategory)
-                                            .sort((a, b) => b[1] - a[1])
-                                            .map(([cat, amount], idx) => (
-                                                <div key={idx} className="flex justify-between text-sm">
-                                                    <span className="text-gray-400">{cat}</span>
-                                                    <span className="text-red-400">{formatMoney(amount)}</span>
-                                                </div>
-                                            ))}
+                                <div className="mt-4 pt-4 border-t border-white/10 space-y-4">
+                                    {/* Category Breakdown */}
+                                    <div>
+                                        <p className="text-xs text-gray-500 mb-2">Por categoría:</p>
+                                        <div className="space-y-1">
+                                            {Object.entries(item.byCategory)
+                                                .sort((a, b) => b[1] - a[1])
+                                                .map(([cat, amount], idx) => (
+                                                    <div key={idx} className="flex justify-between text-sm">
+                                                        <span className="text-gray-400">{cat}</span>
+                                                        <span className="text-red-400">{formatMoney(amount)}</span>
+                                                    </div>
+                                                ))}
+                                        </div>
                                     </div>
+
+                                    {/* Full Transaction List */}
+                                    {item.transactions && item.transactions.length > 0 && (
+                                        <div>
+                                            <p className="text-xs text-gray-500 mb-2">Detalle de movimientos ({item.transactions.length}):</p>
+                                            <div className="space-y-2 max-h-80 overflow-y-auto">
+                                                {item.transactions.map((t, idx) => (
+                                                    <div key={idx} className="bg-secondary/30 rounded-lg p-3 text-sm">
+                                                        <div className="flex justify-between items-start mb-1">
+                                                            <span className="text-white font-medium">{t.descripcion || 'Sin descripción'}</span>
+                                                            <span className="text-red-400 font-bold whitespace-nowrap ml-2">{formatMoney(t.monto)}</span>
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400">
+                                                            <span className="flex items-center gap-1"><Calendar size={11} /> {formatDate(t.fecha)}</span>
+                                                            {t.categoria && <span className="flex items-center gap-1"><Tag size={11} /> {getCategoryName(t.categoria)}</span>}
+                                                            {t.caja_origen_id && <span className="flex items-center gap-1"><Wallet size={11} /> {getCajaName(t.caja_origen_id)}</span>}
+                                                            {t.tercero_id && <span className="flex items-center gap-1"><Users size={11} /> {getTerceroName(t.tercero_id)}</span>}
+                                                            {t.usuario_nombre && <span className="flex items-center gap-1"><User size={11} /> {t.usuario_nombre}</span>}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

@@ -7,6 +7,8 @@ import CajaList from './components/CajaList';
 import AdminPanel from './components/AdminPanel';
 import ReportsPanel from './components/ReportsPanel';
 import ToastContainer from './components/ToastNotification';
+import LoginScreen from './components/LoginScreen';
+import { useAuth } from './context/AuthContext';
 import { db, seedInitialData } from './services/db';
 import syncService from './services/syncService';
 import useOnlineStatus from './hooks/useOnlineStatus';
@@ -20,10 +22,13 @@ function App() {
   const isOnline = useOnlineStatus();
   const toast = useToast();
   const wasOnline = useRef(true);
+  const { currentUser, loading: authLoading, login, logout } = useAuth();
 
   useEffect(() => {
-    initializeApp();
-  }, []);
+    if (currentUser) {
+      initializeApp();
+    }
+  }, [currentUser]);
 
   // Detect online/offline changes and show notifications
   useEffect(() => {
@@ -72,6 +77,24 @@ function App() {
     toast.success('✅ Transacción guardada');
   }
 
+  // Auth loading state
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-primary flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gold mx-auto mb-4"></div>
+          <p className="text-gray-400">Verificando sesión...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Not logged in - show login screen
+  if (!currentUser) {
+    return <LoginScreen onLogin={login} />;
+  }
+
+  // App loading state
   if (!initialized) {
     return (
       <div className="min-h-screen bg-primary flex items-center justify-center">
@@ -91,6 +114,7 @@ function App() {
         setActiveTab={setActiveTab}
         pendingSync={pendingSync}
         onSync={handleSync}
+        onLogout={logout}
       >
         {activeTab === 'dashboard' && <ProjectDashboard />}
         {activeTab === 'nueva' && <TransactionForm onTransactionAdded={handleTransactionAdded} />}
@@ -103,3 +127,4 @@ function App() {
 }
 
 export default App;
+

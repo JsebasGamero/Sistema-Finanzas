@@ -50,6 +50,33 @@ db.version(3).stores({
     deudas_terceros: 'id, tercero_id, proyecto_id, empresa_id, monto_original, monto_pendiente, fecha_deuda, estado, descripcion, created_at'
 });
 
+// Version 4 - Add categories table for dynamic category management
+db.version(4).stores({
+    empresas: 'id, nombre, nit, created_at',
+    proyectos: 'id, nombre, empresa_id, presupuesto_estimado, estado, created_at',
+    cajas: 'id, nombre, tipo, empresa_id, saldo_actual, created_at',
+    terceros: 'id, nombre, tipo, created_at',
+    transacciones: 'id, fecha, descripcion, monto, tipo_movimiento, categoria, proyecto_id, caja_origen_id, caja_destino_id, tercero_id, soporte_url, sincronizado, created_at',
+    sync_queue: '++id, tabla, operacion, datos, timestamp',
+    deudas_cajas: 'id, caja_deudora_id, caja_acreedora_id, monto_original, monto_pendiente, fecha_prestamo, estado, created_at',
+    deudas_terceros: 'id, tercero_id, proyecto_id, empresa_id, monto_original, monto_pendiente, fecha_deuda, estado, descripcion, created_at',
+    // Categorías dinámicas
+    categorias: 'id, nombre, tipo, created_at'
+});
+
+// Version 5 - Add user tracking (usuario_nombre) to all operational tables
+db.version(5).stores({
+    empresas: 'id, nombre, nit, created_at',
+    proyectos: 'id, nombre, empresa_id, presupuesto_estimado, estado, created_at',
+    cajas: 'id, nombre, tipo, empresa_id, saldo_actual, created_at',
+    terceros: 'id, nombre, tipo, created_at',
+    transacciones: 'id, fecha, descripcion, monto, tipo_movimiento, categoria, proyecto_id, caja_origen_id, caja_destino_id, tercero_id, soporte_url, sincronizado, usuario_nombre, created_at',
+    sync_queue: '++id, tabla, operacion, datos, timestamp',
+    deudas_cajas: 'id, caja_deudora_id, caja_acreedora_id, monto_original, monto_pendiente, fecha_prestamo, estado, usuario_nombre, created_at',
+    deudas_terceros: 'id, tercero_id, proyecto_id, empresa_id, monto_original, monto_pendiente, fecha_deuda, estado, descripcion, usuario_nombre, created_at',
+    categorias: 'id, nombre, tipo, created_at'
+});
+
 // Generate UUID v4
 export function generateUUID() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -89,39 +116,65 @@ export async function syncFromSupabase() {
         const { data: transacciones, error: transaccionesError } = await supabase.from('transacciones').select('*');
         if (transaccionesError) throw transaccionesError;
 
-        // Clear and update local DB with Supabase data
-        await db.empresas.clear();
-        await db.cajas.clear();
-        await db.proyectos.clear();
-        await db.terceros.clear();
-        await db.transacciones.clear();
+        // Fetch deudas_cajas (inter-box debts)
+        let deudasCajas = [];
+        try {
+            const { data, error } = await supabase.from('deudas_cajas').select('*');
+            if (!error) deudasCajas = data || [];
+        } catch (e) {
+            console.log('⚠️ deudas_cajas table might not exist in Supabase yet');
+        }
+
+        // Fetch deudas_terceros (supplier debts)
+        let deudasTerceros = [];
+        try {
+            const { data, error } = await supabase.from('deudas_terceros').select('*');
+            if (!error) deudasTerceros = data || [];
+        } catch (e) {
+            console.log('⚠️ deudas_terceros table might not exist in Supabase yet');
+        }
+
+        // Update local DB with Supabase data (using bulkPut to merge/update without deleting local-only data)
+        // We do NOT clear tables because that would wipe unsynced local data!
 
         if (empresas && empresas.length > 0) {
-            await db.empresas.bulkAdd(empresas);
+            await db.empresas.bulkPut(empresas);
             console.log(`✅ Synced ${empresas.length} empresas`);
         }
 
         if (cajas && cajas.length > 0) {
-            await db.cajas.bulkAdd(cajas);
+            await db.cajas.bulkPut(cajas);
             console.log(`✅ Synced ${cajas.length} cajas`);
         }
 
         if (proyectos && proyectos.length > 0) {
-            await db.proyectos.bulkAdd(proyectos);
+            await db.proyectos.bulkPut(proyectos);
             console.log(`✅ Synced ${proyectos.length} proyectos`);
         }
 
         if (terceros && terceros.length > 0) {
-            await db.terceros.bulkAdd(terceros);
+            await db.terceros.bulkPut(terceros);
             console.log(`✅ Synced ${terceros.length} terceros`);
         }
 
         if (transacciones && transacciones.length > 0) {
-            await db.transacciones.bulkAdd(transacciones);
+            await db.transacciones.bulkPut(transacciones);
             console.log(`✅ Synced ${transacciones.length} transacciones`);
 
-            // Recalculate caja balances from transactions
-            await recalculateCajaBalances();
+            // NOTE: We trust the saldo_actual from Supabase.
+            // Don't recalculate balances from transactions as it would lose initial balances set by user.
+        }
+
+        // Sync deudas_cajas
+        if (deudasCajas.length > 0) {
+            await db.deudas_cajas.bulkPut(deudasCajas);
+            console.log(`✅ Synced ${deudasCajas.length} deudas_cajas`);
+        }
+
+        // Sync deudas_terceros
+        if (deudasTerceros.length > 0) {
+            await db.deudas_terceros.bulkPut(deudasTerceros);
+            console.log(`✅ Synced ${deudasTerceros.length} deudas_terceros`);
         }
 
         console.log('✅ Data sync from Supabase complete!');

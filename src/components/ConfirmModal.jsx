@@ -17,21 +17,21 @@ export default function ConfirmModal({
     const typeStyles = {
         default: {
             icon: AlertTriangle,
-            iconBg: 'bg-amber-500/20',
+            iconBg: 'bg-amber-500/15',
             iconColor: 'text-amber-400',
-            confirmBg: 'bg-amber-500 hover:bg-amber-600'
+            confirmBg: 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500'
         },
         danger: {
             icon: AlertTriangle,
-            iconBg: 'bg-red-500/20',
+            iconBg: 'bg-red-500/15',
             iconColor: 'text-red-400',
-            confirmBg: 'bg-red-500 hover:bg-red-600'
+            confirmBg: 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-400 hover:to-red-500'
         },
         success: {
             icon: Check,
-            iconBg: 'bg-green-500/20',
+            iconBg: 'bg-green-500/15',
             iconColor: 'text-green-400',
-            confirmBg: 'bg-green-500 hover:bg-green-600'
+            confirmBg: 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-400 hover:to-green-500'
         }
     };
 
@@ -39,28 +39,35 @@ export default function ConfirmModal({
     const Icon = style.icon;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-5">
             {/* Backdrop */}
             <div
-                className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+                className="absolute inset-0 bg-black/70 backdrop-blur-md"
                 onClick={onCancel}
             />
 
             {/* Modal */}
-            <div className="relative bg-secondary rounded-xl shadow-2xl w-full max-w-md border border-white/10 animate-in fade-in zoom-in duration-200">
+            <div className="relative w-full max-w-md animate-fade-in"
+                style={{
+                    background: 'linear-gradient(145deg, rgba(26,37,64,0.95) 0%, rgba(19,28,49,0.9) 100%)',
+                    backdropFilter: 'blur(16px)',
+                    borderRadius: 'var(--radius-xl)',
+                    border: '1px solid var(--border-visible)',
+                    boxShadow: '0 24px 64px -12px rgba(0,0,0,0.5)'
+                }}>
                 {/* Close button */}
                 <button
                     onClick={onCancel}
-                    className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
+                    className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors p-1"
                 >
                     <X size={20} />
                 </button>
 
                 {/* Content */}
-                <div className="p-6">
+                <div className="p-7">
                     {/* Icon */}
-                    <div className={`w-12 h-12 rounded-full ${style.iconBg} flex items-center justify-center mx-auto mb-4`}>
-                        <Icon size={24} className={style.iconColor} />
+                    <div className={`w-14 h-14 rounded-2xl ${style.iconBg} flex items-center justify-center mx-auto mb-5`}>
+                        <Icon size={26} className={style.iconColor} />
                     </div>
 
                     {/* Title */}
@@ -69,16 +76,17 @@ export default function ConfirmModal({
                     </h3>
 
                     {/* Message */}
-                    <p className="text-gray-400 text-center mb-4">
+                    <p className="text-center mb-5 text-sm" style={{ color: 'var(--text-secondary)' }}>
                         {message}
                     </p>
 
                     {/* Details (optional) */}
                     {details && (
-                        <div className="bg-card rounded-lg p-4 mb-6 space-y-2">
+                        <div className="rounded-xl p-4 mb-6 space-y-2.5"
+                            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)' }}>
                             {details.map((detail, idx) => (
                                 <div key={idx} className="flex justify-between text-sm">
-                                    <span className="text-gray-400">{detail.label}</span>
+                                    <span style={{ color: 'var(--text-muted)' }}>{detail.label}</span>
                                     <span className={`font-medium ${detail.highlight ? 'text-gold' : 'text-white'}`}>
                                         {detail.value}
                                     </span>
@@ -91,13 +99,14 @@ export default function ConfirmModal({
                     <div className="flex gap-3">
                         <button
                             onClick={onCancel}
-                            className="flex-1 py-3 px-4 rounded-lg bg-card text-gray-300 font-medium hover:bg-gray-600 transition-colors"
+                            className="btn-secondary flex-1 py-3"
                         >
                             {cancelText}
                         </button>
                         <button
                             onClick={onConfirm}
-                            className={`flex-1 py-3 px-4 rounded-lg text-white font-medium transition-colors ${style.confirmBg}`}
+                            className={`flex-1 py-3 px-4 rounded-xl text-white font-semibold transition-all ${style.confirmBg}`}
+                            style={{ boxShadow: '0 4px 12px -2px rgba(0,0,0,0.3)' }}
                         >
                             {confirmText}
                         </button>

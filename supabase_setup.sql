@@ -84,6 +84,10 @@ CREATE TABLE IF NOT EXISTS transacciones (
   sincronizado BOOLEAN DEFAULT TRUE,
   device_id TEXT, -- Identificador del dispositivo que creó la transacción
   
+  -- Tracking de usuarios
+  usuario_nombre TEXT, -- Nombre del usuario que registró
+  editado_por TEXT, -- Nombre del usuario que editó (si aplica)
+  
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -96,6 +100,38 @@ CREATE TABLE IF NOT EXISTS categorias (
   icono TEXT,
   color TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Tabla de Deudas entre Cajas (préstamos internos)
+CREATE TABLE IF NOT EXISTS deudas_cajas (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  caja_deudora_id UUID REFERENCES cajas(id) ON DELETE SET NULL,
+  caja_acreedora_id UUID REFERENCES cajas(id) ON DELETE SET NULL,
+  monto_original NUMERIC NOT NULL CHECK (monto_original > 0),
+  monto_pendiente NUMERIC NOT NULL DEFAULT 0,
+  fecha_prestamo DATE DEFAULT CURRENT_DATE,
+  estado TEXT DEFAULT 'PENDIENTE' CHECK (estado IN ('PENDIENTE', 'PARCIAL', 'PAGADA')),
+  pagos JSONB DEFAULT '[]',
+  usuario_nombre TEXT, -- Nombre del usuario que registró
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Tabla de Deudas a Terceros (proveedores, empleados)
+CREATE TABLE IF NOT EXISTS deudas_terceros (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tercero_id UUID REFERENCES terceros(id) ON DELETE SET NULL,
+  proyecto_id UUID REFERENCES proyectos(id) ON DELETE SET NULL,
+  empresa_id UUID REFERENCES empresas(id) ON DELETE SET NULL,
+  monto_original NUMERIC NOT NULL CHECK (monto_original > 0),
+  monto_pendiente NUMERIC NOT NULL DEFAULT 0,
+  fecha_deuda DATE DEFAULT CURRENT_DATE,
+  estado TEXT DEFAULT 'PENDIENTE' CHECK (estado IN ('PENDIENTE', 'PARCIAL', 'PAGADA')),
+  descripcion TEXT,
+  pagos JSONB DEFAULT '[]',
+  usuario_nombre TEXT, -- Nombre del usuario que registró
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- =====================================================
@@ -191,6 +227,19 @@ CREATE POLICY "Allow public delete transacciones" ON transacciones FOR DELETE US
 
 CREATE POLICY "Allow public read categorias" ON categorias FOR SELECT USING (true);
 CREATE POLICY "Allow public insert categorias" ON categorias FOR INSERT WITH CHECK (true);
+
+ALTER TABLE deudas_cajas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deudas_terceros ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow public read deudas_cajas" ON deudas_cajas FOR SELECT USING (true);
+CREATE POLICY "Allow public insert deudas_cajas" ON deudas_cajas FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update deudas_cajas" ON deudas_cajas FOR UPDATE USING (true);
+CREATE POLICY "Allow public delete deudas_cajas" ON deudas_cajas FOR DELETE USING (true);
+
+CREATE POLICY "Allow public read deudas_terceros" ON deudas_terceros FOR SELECT USING (true);
+CREATE POLICY "Allow public insert deudas_terceros" ON deudas_terceros FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update deudas_terceros" ON deudas_terceros FOR UPDATE USING (true);
+CREATE POLICY "Allow public delete deudas_terceros" ON deudas_terceros FOR DELETE USING (true);
 
 -- =====================================================
 -- 6. DATOS INICIALES - EMPRESAS
@@ -355,3 +404,13 @@ HAVING SUM(t.monto) > 0;
 -- SELECT * FROM cajas;
 -- SELECT * FROM proyectos;
 -- SELECT * FROM categorias;
+
+-- =====================================================
+-- 12. MIGRACIÓN: AGREGAR COLUMNAS DE TRACKING DE USUARIO
+-- Ejecutar SOLO si ya tienes las tablas creadas
+-- =====================================================
+
+-- ALTER TABLE transacciones ADD COLUMN IF NOT EXISTS usuario_nombre TEXT;
+-- ALTER TABLE transacciones ADD COLUMN IF NOT EXISTS editado_por TEXT;
+-- ALTER TABLE deudas_cajas ADD COLUMN IF NOT EXISTS usuario_nombre TEXT;
+-- ALTER TABLE deudas_terceros ADD COLUMN IF NOT EXISTS usuario_nombre TEXT;

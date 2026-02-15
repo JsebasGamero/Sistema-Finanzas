@@ -17,8 +17,12 @@ import {
     FileText
 } from 'lucide-react';
 import { db, generateUUID } from '../services/db';
+import { addToSyncQueue, processSyncQueue } from '../services/syncService';
+import AutocompleteInput from './AutocompleteInput';
+import { useAuth } from '../context/AuthContext';
 
 export default function DeudaTercerosPanel({ onDebtChanged }) {
+    const { currentUser } = useAuth();
     const [deudas, setDeudas] = useState([]);
     const [terceros, setTerceros] = useState([]);
     const [proyectos, setProyectos] = useState([]);
@@ -112,6 +116,42 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
         return empresas.find(e => e.id === id)?.nombre || '-';
     }
 
+    // Format number with thousand separators (dots) for display in input
+    function formatDisplayNumber(value) {
+        if (!value && value !== 0) return '';
+        const numStr = String(value).replace(/\D/g, '');
+        if (!numStr) return '';
+        return new Intl.NumberFormat('es-CO').format(parseInt(numStr, 10));
+    }
+
+    // Parse formatted number back to raw number string
+    function parseFormattedNumber(formattedValue) {
+        return formattedValue.replace(/\./g, '');
+    }
+
+    // Create a new tercero on the fly
+    async function createNewTercero(nombre) {
+        const newTercero = {
+            id: generateUUID(),
+            nombre: nombre,
+            tipo: 'Proveedor',
+            nit_cedula: '',
+            telefono: '',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        };
+
+        await db.terceros.add(newTercero);
+        await addToSyncQueue('terceros', 'INSERT', newTercero);
+
+        if (navigator.onLine) {
+            processSyncQueue().catch(err => console.log('Sync error:', err));
+        }
+
+        setTerceros(prev => [...prev, newTercero]);
+        return newTercero;
+    }
+
     // Filter and group debts
     const filteredDeudas = useMemo(() => {
         return deudas.filter(d => {
@@ -170,11 +210,19 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
             estado: 'PENDIENTE',
             descripcion: formData.descripcion || `Deuda a ${getTerceroName(formData.terceroId)}`,
             pagos: [],
+            usuario_nombre: currentUser?.nombre || 'Desconocido',
             created_at: new Date().toISOString()
         };
 
         try {
             await db.deudas_terceros.add(newDeuda);
+
+            // Sync to Supabase
+            await addToSyncQueue('deudas_terceros', 'INSERT', newDeuda);
+            if (navigator.onLine) {
+                try { await processSyncQueue(); } catch (err) { console.log('Sync error:', err); }
+            }
+
             setDeudas([...deudas, newDeuda]);
             setFormData({
                 terceroId: '',
@@ -199,6 +247,11 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
             return;
         }
 
+        if (!paymentData.cajaId) {
+            alert('Debes seleccionar de qué caja sale el abono');
+            return;
+        }
+
         const deuda = deudas.find(d => d.id === deudaId);
         if (!deuda) return;
 
@@ -207,27 +260,102 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
             return;
         }
 
+        // Check caja has enough balance
+        const cajaSeleccionada = cajas.find(c => c.id === paymentData.cajaId);
+        if (cajaSeleccionada && cajaSeleccionada.saldo_actual < amount) {
+            const confirmar = confirm(
+                `La caja "${cajaSeleccionada.nombre}" solo tiene ${formatMoney(cajaSeleccionada.saldo_actual)}. ` +
+                `¿Deseas continuar con el abono de ${formatMoney(amount)}? El saldo quedará negativo.`
+            );
+            if (!confirmar) return;
+        }
+
         const newMontoPendiente = deuda.monto_pendiente - amount;
         const newEstado = newMontoPendiente === 0 ? 'PAGADA' : 'PARCIAL';
         const pagos = [...(deuda.pagos || []), {
             monto: amount,
             fecha: new Date().toISOString(),
             descripcion: paymentData.descripcion || 'Abono',
-            caja_id: paymentData.cajaId || null
+            caja_id: paymentData.cajaId,
+            usuario_nombre: currentUser?.nombre || 'Desconocido'
         }];
 
         try {
+            // 1. Update the debt
             await db.deudas_terceros.update(deudaId, {
                 monto_pendiente: newMontoPendiente,
                 estado: newEstado,
                 pagos
             });
 
+            // 1b. Sync the debt update to Supabase
+            const updatedDeuda = await db.deudas_terceros.get(deudaId);
+            if (updatedDeuda) {
+                await addToSyncQueue('deudas_terceros', 'UPDATE', updatedDeuda);
+            }
+
+            // 2. Create EGRESO transaction (deduct from caja)
+            const transaccion = {
+                id: generateUUID(),
+                fecha: new Date().toISOString().split('T')[0],
+                descripcion: `Abono deuda: ${getTerceroName(deuda.tercero_id)} - ${paymentData.descripcion || 'Pago'}`,
+                monto: amount,
+                tipo_movimiento: 'EGRESO',
+                categoria: 'Pago Deuda',
+                proyecto_id: deuda.proyecto_id || null,
+                caja_origen_id: paymentData.cajaId,
+                caja_destino_id: null,
+                tercero_id: deuda.tercero_id,
+                empresa_id: deuda.empresa_id || null,
+                sincronizado: false,
+                usuario_nombre: currentUser?.nombre || 'Desconocido',
+                created_at: new Date().toISOString()
+            };
+
+            await db.transacciones.add(transaccion);
+
+            // Add to sync queue for Supabase
+            await addToSyncQueue('transacciones', 'INSERT', transaccion);
+
+            // Try to sync immediately if online, and WAIT for it to complete
+            if (navigator.onLine) {
+                try {
+                    await processSyncQueue();
+                    // Update local transaction to show as synced
+                    await db.transacciones.update(transaccion.id, { sincronizado: true });
+                } catch (err) {
+                    console.log('Sync error (will retry later):', err);
+                }
+            }
+
+            // 3. Update caja balance (deduct) and sync to Supabase
+            const caja = await db.cajas.get(paymentData.cajaId);
+            if (caja) {
+                const nuevoSaldo = (caja.saldo_actual || 0) - amount;
+                await db.cajas.update(paymentData.cajaId, { saldo_actual: nuevoSaldo });
+
+                // Sync caja balance update to Supabase
+                const updatedCaja = { ...caja, saldo_actual: nuevoSaldo };
+                await addToSyncQueue('cajas', 'UPDATE', updatedCaja);
+
+                // Sync immediately if online
+                if (navigator.onLine) {
+                    await processSyncQueue();
+                }
+
+                // Update local state
+                setCajas(cajas.map(c =>
+                    c.id === paymentData.cajaId ? { ...c, saldo_actual: nuevoSaldo } : c
+                ));
+            }
+
+            // Update local deuda state
             setDeudas(deudas.map(d =>
                 d.id === deudaId
                     ? { ...d, monto_pendiente: newMontoPendiente, estado: newEstado, pagos }
                     : d
             ));
+
             setPaymentData({ monto: '', descripcion: '', cajaId: '' });
             setShowPaymentForm(null);
             onDebtChanged?.();
@@ -242,10 +370,18 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
 
         try {
             await db.deudas_terceros.delete(deudaId);
+
+            // Sync deletion to Supabase
+            await addToSyncQueue('deudas_terceros', 'DELETE', { id: deudaId });
+            if (navigator.onLine) {
+                try { await processSyncQueue(); } catch (err) { console.log('Sync error:', err); }
+            }
+
             setDeudas(deudas.filter(d => d.id !== deudaId));
             onDebtChanged?.();
         } catch (error) {
             console.error('Error deleting debt:', error);
+            alert('Error al eliminar la deuda');
         }
     }
 
@@ -344,17 +480,17 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
 
                     <div>
                         <label className="label">Proveedor / Tercero *</label>
-                        <select
+                        <AutocompleteInput
+                            items={terceros}
                             value={formData.terceroId}
-                            onChange={(e) => setFormData({ ...formData, terceroId: e.target.value })}
-                            className="input-field"
-                            required
-                        >
-                            <option value="">Seleccionar...</option>
-                            {terceros.map(t => (
-                                <option key={t.id} value={t.id}>{t.nombre} ({t.tipo})</option>
-                            ))}
-                        </select>
+                            onChange={(val) => setFormData({ ...formData, terceroId: val })}
+                            onCreateNew={createNewTercero}
+                            placeholder="Escribir o seleccionar..."
+                            displayKey="nombre"
+                            valueKey="id"
+                            createLabel="Crear proveedor:"
+                            emptyMessage="Sin proveedores"
+                        />
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -392,13 +528,14 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
                             <div className="relative">
                                 <DollarSign size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                                 <input
-                                    type="number"
-                                    value={formData.monto}
-                                    onChange={(e) => setFormData({ ...formData, monto: e.target.value })}
+                                    type="text"
+                                    value={formatDisplayNumber(formData.monto)}
+                                    onChange={(e) => setFormData({ ...formData, monto: parseFormattedNumber(e.target.value) })}
                                     className="input-field"
                                     style={{ paddingLeft: '40px' }}
                                     placeholder="0"
                                     required
+                                    inputMode="numeric"
                                 />
                             </div>
                         </div>
@@ -450,7 +587,7 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
                             >
                                 <div className="flex items-center gap-3">
                                     <div className={`p-2 rounded-lg ${deuda.estado === 'PAGADA' ? 'bg-green-500/20' :
-                                            deuda.estado === 'PARCIAL' ? 'bg-blue-500/20' : 'bg-red-500/20'
+                                        deuda.estado === 'PARCIAL' ? 'bg-blue-500/20' : 'bg-red-500/20'
                                         }`}>
                                         {deuda.estado === 'PAGADA' ? (
                                             <CheckCircle size={18} className="text-green-400" />
@@ -526,21 +663,23 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
                                                 <div className="flex gap-2">
                                                     <div className="flex-1">
                                                         <input
-                                                            type="number"
-                                                            value={paymentData.monto}
-                                                            onChange={(e) => setPaymentData({ ...paymentData, monto: e.target.value })}
+                                                            type="text"
+                                                            value={formatDisplayNumber(paymentData.monto)}
+                                                            onChange={(e) => setPaymentData({ ...paymentData, monto: parseFormattedNumber(e.target.value) })}
                                                             className="input-field"
-                                                            placeholder="Monto a abonar"
+                                                            placeholder="Monto a pagar"
+                                                            inputMode="numeric"
                                                         />
                                                     </div>
                                                     <select
                                                         value={paymentData.cajaId}
                                                         onChange={(e) => setPaymentData({ ...paymentData, cajaId: e.target.value })}
                                                         className="input-field flex-1"
+                                                        required
                                                     >
-                                                        <option value="">Caja (opcional)</option>
+                                                        <option value="">Seleccionar Caja *</option>
                                                         {cajas.map(c => (
-                                                            <option key={c.id} value={c.id}>{c.nombre}</option>
+                                                            <option key={c.id} value={c.id}>{c.nombre} ({formatMoney(c.saldo_actual)})</option>
                                                         ))}
                                                     </select>
                                                 </div>
