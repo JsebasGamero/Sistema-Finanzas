@@ -138,7 +138,7 @@ function prepareForSupabase(data, tabla = 'transacciones') {
         transacciones: [
             'id', 'fecha', 'descripcion', 'monto', 'tipo_movimiento', 'categoria',
             'proyecto_id', 'caja_origen_id', 'caja_destino_id', 'tercero_id',
-            'soporte_url', 'sincronizado', 'device_id', 'created_at'
+            'soporte_url', 'sincronizado', 'usuario_nombre', 'device_id', 'created_at'
         ],
         empresas: [
             'id', 'nombre', 'nit', 'direccion', 'telefono', 'created_at', 'updated_at'
@@ -297,6 +297,82 @@ export async function forceSync() {
     return await processSyncQueue();
 }
 
+// Update transaction with offline support
+export async function updateTransaction(id, updateData) {
+    const original = await db.transacciones.get(id);
+    if (!original) return null;
+
+    const updatedTransaction = { ...original, ...updateData, updated_at: new Date().toISOString() };
+    await db.transacciones.update(id, updateData);
+
+    // Add to sync queue
+    await addToSyncQueue('transacciones', 'UPDATE', updatedTransaction);
+
+    // Try to sync immediately if online
+    if (navigator.onLine) {
+        await processSyncQueue();
+    }
+
+    return updatedTransaction;
+}
+
+// Delete transaction with offline support (reverses caja balances)
+export async function deleteTransaction(transactionData) {
+    const t = transactionData;
+
+    // Reverse the balance changes locally
+    if (t.tipo_movimiento === 'INGRESO' && t.caja_origen_id) {
+        await updateCajaBalanceWithSync(t.caja_origen_id, -t.monto);
+    } else if (t.tipo_movimiento === 'EGRESO' && t.caja_origen_id) {
+        await updateCajaBalanceWithSync(t.caja_origen_id, t.monto);
+    } else if (t.tipo_movimiento === 'TRANSFERENCIA') {
+        if (t.caja_origen_id) {
+            await updateCajaBalanceWithSync(t.caja_origen_id, t.monto);
+        }
+        if (t.caja_destino_id) {
+            await updateCajaBalanceWithSync(t.caja_destino_id, -t.monto);
+        }
+    }
+
+    // Delete from local DB
+    await db.transacciones.delete(t.id);
+
+    // Add to sync queue
+    await addToSyncQueue('transacciones', 'DELETE', { id: t.id });
+
+    // Try to sync immediately if online
+    if (navigator.onLine) {
+        await processSyncQueue();
+    }
+}
+
+// Update caja balance with sync queue support
+async function updateCajaBalanceWithSync(cajaId, amount) {
+    if (!cajaId) return;
+    const caja = await db.cajas.get(cajaId);
+    if (caja) {
+        const newBalance = (caja.saldo_actual || 0) + amount;
+        await db.cajas.update(cajaId, { saldo_actual: newBalance });
+
+        // Add balance update to sync queue
+        await addToSyncQueue('cajas', 'UPDATE', { id: cajaId, saldo_actual: newBalance });
+    }
+}
+
+// Delete any entity with offline support (for AdminPanel)
+export async function deleteEntity(tabla, id) {
+    // Delete from local DB
+    await db[tabla].delete(id);
+
+    // Add to sync queue
+    await addToSyncQueue(tabla, 'DELETE', { id });
+
+    // Try to sync immediately if online
+    if (navigator.onLine) {
+        await processSyncQueue();
+    }
+}
+
 // ============== DEUDAS CAJAS (Inter-box debts) ==============
 
 // Create inter-box debt with sync support
@@ -391,6 +467,9 @@ export async function updateDeudaTerceros(id, updateData) {
 
 export default {
     createTransaction,
+    updateTransaction,
+    deleteTransaction,
+    deleteEntity,
     getTransactions,
     getPendingSyncCount,
     processSyncQueue,

@@ -15,7 +15,6 @@ import {
     Settings
 } from 'lucide-react';
 import { db, generateUUID } from '../services/db';
-import { supabase, isSupabaseConfigured } from '../services/supabase';
 import { addToSyncQueue, processSyncQueue } from '../services/syncService';
 import ConfirmModal from './ConfirmModal';
 
@@ -124,9 +123,10 @@ export default function AdminPanel() {
             // Delete from local DB
             await db[activeEntity].delete(deleteConfirm.id);
 
-            // Sync to Supabase if configured
-            if (isSupabaseConfigured()) {
-                await supabase.from(activeEntity).delete().eq('id', deleteConfirm.id);
+            // Add to sync queue (works offline)
+            await addToSyncQueue(activeEntity, 'DELETE', { id: deleteConfirm.id });
+            if (navigator.onLine) {
+                processSyncQueue().catch(err => console.log('Sync error:', err));
             }
 
             await loadItems();

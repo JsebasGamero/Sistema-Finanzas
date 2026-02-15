@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { db } from '../services/db';
 import syncService from '../services/syncService';
-import { supabase, isSupabaseConfigured } from '../services/supabase';
+import { addToSyncQueue, processSyncQueue } from '../services/syncService';
 import ConfirmModal from './ConfirmModal';
 import TransactionEditModal from './TransactionEditModal';
 import ImagePreviewModal from './ImagePreviewModal';
@@ -150,10 +150,10 @@ export default function ProjectDashboard() {
 
         await db.transacciones.update(original.id, toUpdate);
 
-        // Sync to Supabase
-        if (isSupabaseConfigured()) {
-            const { id, created_at, ...rest } = toUpdate;
-            await supabase.from('transacciones').update(rest).eq('id', id);
+        // Add to sync queue (works offline)
+        await addToSyncQueue('transacciones', 'UPDATE', { id: original.id, ...toUpdate });
+        if (navigator.onLine) {
+            processSyncQueue().catch(err => console.log('Sync error:', err));
         }
 
         setEditingTransaction(null);
@@ -165,7 +165,7 @@ export default function ProjectDashboard() {
 
         const t = deleteConfirm;
 
-        // Reverse the balance changes
+        // Reverse the balance changes locally
         if (t.tipo_movimiento === 'INGRESO') {
             await updateCajaBalance(t.caja_origen_id, -t.monto);
         } else if (t.tipo_movimiento === 'EGRESO') {
@@ -178,9 +178,10 @@ export default function ProjectDashboard() {
         // Delete from local DB
         await db.transacciones.delete(t.id);
 
-        // Delete from Supabase
-        if (isSupabaseConfigured()) {
-            await supabase.from('transacciones').delete().eq('id', t.id);
+        // Add to sync queue (works offline)
+        await addToSyncQueue('transacciones', 'DELETE', { id: t.id });
+        if (navigator.onLine) {
+            processSyncQueue().catch(err => console.log('Sync error:', err));
         }
 
         setDeleteConfirm(null);
@@ -194,9 +195,8 @@ export default function ProjectDashboard() {
             const newBalance = (caja.saldo_actual || 0) + amount;
             await db.cajas.update(cajaId, { saldo_actual: newBalance });
 
-            if (isSupabaseConfigured()) {
-                await supabase.from('cajas').update({ saldo_actual: newBalance }).eq('id', cajaId);
-            }
+            // Add to sync queue (works offline)
+            await addToSyncQueue('cajas', 'UPDATE', { id: cajaId, saldo_actual: newBalance });
         }
     }
 
