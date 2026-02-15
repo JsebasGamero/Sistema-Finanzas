@@ -1,13 +1,16 @@
 // TransactionForm component - Form for income/expense/transfers with confirmation
 import { useState, useEffect } from 'react';
-import { Save, Camera, ArrowRight, Check, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, CreditCard, Receipt } from 'lucide-react';
+import { Save, Camera, ArrowRight, Check, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, CreditCard, Receipt, RefreshCw } from 'lucide-react';
 import { db, generateUUID } from '../services/db';
 import syncService, { addToSyncQueue, processSyncQueue } from '../services/syncService';
 import ConfirmModal from './ConfirmModal';
 import DeudaCajasPanel from './DeudaCajasPanel';
 import DeudaTercerosPanel from './DeudaTercerosPanel';
 import AutocompleteInput from './AutocompleteInput';
+
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../services/supabase';
+import { XCircle } from 'lucide-react';
 
 export default function TransactionForm({ onTransactionAdded }) {
     const { currentUser } = useAuth();
@@ -26,6 +29,8 @@ export default function TransactionForm({ onTransactionAdded }) {
     const [terceroId, setTerceroId] = useState('');
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
+    const [uploading, setUploading] = useState(false);
+    const [soporteUrl, setSoporteUrl] = useState(null);
 
     // Confirmation modal state
     const [showConfirm, setShowConfirm] = useState(false);
@@ -228,7 +233,8 @@ export default function TransactionForm({ onTransactionAdded }) {
             caja_origen_id: cajaOrigenId,
             caja_destino_id: tipo === 'TRANSFERENCIA' ? cajaDestinoId : null,
             tercero_id: terceroId || null,
-            soporte_url: null,
+            soporte_url: soporteUrl,
+            sincronizado: false,
             usuario_nombre: currentUser?.nombre || 'Desconocido',
             // For display in confirmation
             _cajaOrigenNombre: cajaOrigen?.nombre,
@@ -258,7 +264,9 @@ export default function TransactionForm({ onTransactionAdded }) {
             setDescripcion('');
             setCategoria('');
             setProyectoId('');
-            setTerceroId('');
+            setCajaDestinoId('');
+            setSoporteUrl(null);
+            setUploading(false);
             if (tipo !== 'TRANSFERENCIA') {
                 setCajaDestinoId('');
             }
@@ -557,16 +565,85 @@ export default function TransactionForm({ onTransactionAdded }) {
                         </div>
 
                         {/* Photo button */}
-                        <button
-                            type="button"
-                            className="w-full py-3.5 border-2 border-dashed rounded-xl flex items-center justify-center gap-2 transition-colors"
-                            style={{ borderColor: 'rgba(255,255,255,0.08)', color: 'var(--text-muted)' }}
-                            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent-gold)'; e.currentTarget.style.color = 'var(--accent-gold)'; }}
-                            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
-                        >
-                            <Camera size={20} />
-                            Agregar foto del soporte
-                        </button>
+                        {/* Soporte Upload */}
+                        <div className="space-y-3">
+                            <input
+                                type="file"
+                                id="soporte-upload"
+                                accept="image/*"
+                                capture="environment"
+                                className="hidden"
+                                onChange={async (e) => {
+                                    const file = e.target.files[0];
+                                    if (!file) return;
+
+                                    setUploading(true);
+                                    try {
+                                        const fileExt = file.name.split('.').pop();
+                                        const fileName = `${Math.random().toString(36).substring(2, 15)}_${Date.now()}.${fileExt}`;
+                                        const filePath = `${currentUser?.id || 'anon'}/${fileName}`;
+
+                                        const { error: uploadError } = await supabase.storage
+                                            .from('soportes')
+                                            .upload(filePath, file);
+
+                                        if (uploadError) throw uploadError;
+
+                                        const { data: { publicUrl } } = supabase.storage
+                                            .from('soportes')
+                                            .getPublicUrl(filePath);
+
+                                        setSoporteUrl(publicUrl);
+                                    } catch (error) {
+                                        console.error('Error uploading image:', error);
+                                        alert(`Error al subir la imagen: ${error.message || 'Verifica que el bucket "soportes" exista en Supabase Storage'}`);
+                                    } finally {
+                                        setUploading(false);
+                                    }
+                                }}
+                            />
+
+                            {!soporteUrl ? (
+                                <button
+                                    type="button"
+                                    onClick={() => document.getElementById('soporte-upload').click()}
+                                    disabled={uploading}
+                                    className="w-full py-3.5 border-2 border-dashed rounded-xl flex items-center justify-center gap-2 transition-colors group"
+                                    style={{ borderColor: 'rgba(255,255,255,0.08)', color: 'var(--text-muted)' }}
+                                    onMouseEnter={e => { if (!uploading) { e.currentTarget.style.borderColor = 'var(--accent-gold)'; e.currentTarget.style.color = 'var(--accent-gold)'; } }}
+                                    onMouseLeave={e => { if (!uploading) { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'var(--text-muted)'; } }}
+                                >
+                                    {uploading ? (
+                                        <RefreshCw size={20} className="animate-spin text-gold" />
+                                    ) : (
+                                        <Camera size={20} className="group-hover:scale-110 transition-transform" />
+                                    )}
+                                    {uploading ? 'Subiendo imagen...' : 'Agregar foto del soporte'}
+                                </button>
+                            ) : (
+                                <div className="relative rounded-xl overflow-hidden border border-white/10 group">
+                                    <img
+                                        src={soporteUrl}
+                                        alt="Soporte preview"
+                                        className="w-full h-48 object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                                    />
+                                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            type="button"
+                                            onClick={() => setSoporteUrl(null)}
+                                            className="bg-red-500/80 text-white p-2 rounded-full hover:bg-red-600 transition-colors"
+                                            title="Eliminar imagen"
+                                        >
+                                            <XCircle size={24} />
+                                        </button>
+                                    </div>
+                                    <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-md backdrop-blur-sm flex items-center gap-1">
+                                        <Check size={12} className="text-green-400" />
+                                        Soporte adjunto
+                                    </div>
+                                </div>
+                            )}
+                        </div>
 
                         {/* Submit button */}
                         <button
@@ -613,24 +690,3 @@ export default function TransactionForm({ onTransactionAdded }) {
     );
 }
 
-function RefreshCw({ size, className }) {
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width={size}
-            height={size}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={className}
-        >
-            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-            <path d="M21 3v5h-5" />
-            <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-            <path d="M8 16H3v5" />
-        </svg>
-    );
-}

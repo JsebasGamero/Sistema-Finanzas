@@ -19,6 +19,8 @@ import syncService from '../services/syncService';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
 import ConfirmModal from './ConfirmModal';
 import TransactionEditModal from './TransactionEditModal';
+import ImagePreviewModal from './ImagePreviewModal';
+import { Image as ImageIcon } from 'lucide-react';
 
 export default function ProjectDashboard() {
     const [stats, setStats] = useState({
@@ -38,7 +40,9 @@ export default function ProjectDashboard() {
 
     // Edit/Delete state
     const [editingTransaction, setEditingTransaction] = useState(null);
+
     const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [previewImage, setPreviewImage] = useState(null);
 
     useEffect(() => {
         loadStats();
@@ -291,6 +295,15 @@ export default function ProjectDashboard() {
                             </button>
                         </div>
                     )}
+                    {t.soporte_url && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setPreviewImage({ url: t.soporte_url, title: t.descripcion }); }}
+                            className="p-1.5 text-gray-400 hover:text-blue-400 transition-colors rounded-lg hover:bg-white/5 ml-1"
+                            title="Ver soporte"
+                        >
+                            <ImageIcon size={16} />
+                        </button>
+                    )}
                 </div>
             </div>
         );
@@ -510,6 +523,14 @@ export default function ProjectDashboard() {
                 type="danger"
                 onConfirm={handleDelete}
                 onCancel={() => setDeleteConfirm(null)}
+            />
+
+            {/* Image Preview Modal */}
+            <ImagePreviewModal
+                isOpen={!!previewImage}
+                onClose={() => setPreviewImage(null)}
+                imageUrl={previewImage?.url}
+                title={previewImage?.title}
             />
         </div>
     );

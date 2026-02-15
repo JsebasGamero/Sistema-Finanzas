@@ -22,11 +22,13 @@ import {
     PieChart,
     FileText,
     CreditCard,
-    History
+    History,
+    Image as ImageIcon
 } from 'lucide-react';
 import { db } from '../services/db';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import ImagePreviewModal from './ImagePreviewModal';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     PieChart as RechartsPie, Pie, Cell, Legend,
@@ -677,6 +679,7 @@ export default function ReportsPanel() {
 // Movimientos Report Component - Expandable cards with full details
 function MovimientosReport({ transactions, getCajaName, getTerceroName, getProyectoName, getEmpresaName, getCategoryName, formatMoney, formatDate, sortField, sortDirection, onSort }) {
     const [expandedId, setExpandedId] = useState(null);
+    const [previewImage, setPreviewImage] = useState(null);
     const SortIcon = sortDirection === 'asc' ? ChevronUp : ChevronDown;
 
     return (
@@ -740,100 +743,120 @@ function MovimientosReport({ transactions, getCajaName, getTerceroName, getProye
                             </button>
 
                             {expandedId === t.id && (
-                                <div className="mt-3 pt-3 border-t border-white/10 grid grid-cols-2 gap-3 text-sm">
-                                    {/* Tipo */}
-                                    <div>
-                                        <p className="text-xs text-gray-500">Tipo</p>
-                                        <p className={`font-medium ${t.tipo_movimiento === 'INGRESO' ? 'text-green-400' :
-                                            t.tipo_movimiento === 'EGRESO' ? 'text-red-400' : 'text-blue-400'
-                                            }`}>{t.tipo_movimiento}</p>
-                                    </div>
-
-                                    {/* Categoría */}
-                                    <div>
-                                        <p className="text-xs text-gray-500">Categoría</p>
-                                        <p className="text-gray-300">{getCategoryName(t.categoria)}</p>
-                                    </div>
-
-                                    {/* Caja Origen */}
-                                    <div>
-                                        <p className="text-xs text-gray-500">Caja {t.tipo_movimiento === 'TRANSFERENCIA' ? 'Origen' : ''}</p>
-                                        <p className="text-gray-300">{getCajaName(t.caja_origen_id)}</p>
-                                    </div>
-
-                                    {/* Caja Destino (solo transferencias) */}
-                                    {t.tipo_movimiento === 'TRANSFERENCIA' && t.caja_destino_id && (
+                                <div className="mt-3 pt-3 border-t border-white/10 space-y-3">
+                                    <div className="grid grid-cols-2 gap-3 text-sm">
+                                        {/* Tipo */}
                                         <div>
-                                            <p className="text-xs text-gray-500">Caja Destino</p>
-                                            <p className="text-gray-300">{getCajaName(t.caja_destino_id)}</p>
-                                        </div>
-                                    )}
-
-                                    {/* Tercero */}
-                                    {t.tercero_id && (
-                                        <div>
-                                            <p className="text-xs text-gray-500">Proveedor / Beneficiario</p>
-                                            <p className="text-gray-300">{getTerceroName(t.tercero_id)}</p>
-                                        </div>
-                                    )}
-
-                                    {/* Proyecto */}
-                                    {t.proyecto_id && (
-                                        <div>
-                                            <p className="text-xs text-gray-500">Proyecto / Obra</p>
-                                            <p className="text-gray-300">{getProyectoName(t.proyecto_id)}</p>
-                                        </div>
-                                    )}
-
-                                    {/* Empresa */}
-                                    {t.empresa_id && (
-                                        <div>
-                                            <p className="text-xs text-gray-500">Empresa</p>
-                                            <p className="text-gray-300">{getEmpresaName ? getEmpresaName(t.empresa_id) : t.empresa_id}</p>
-                                        </div>
-                                    )}
-
-                                    {/* Descripción completa */}
-                                    {t.descripcion && (
-                                        <div className="col-span-2">
-                                            <p className="text-xs text-gray-500">Descripción</p>
-                                            <p className="text-gray-300">{t.descripcion}</p>
-                                        </div>
-                                    )}
-
-                                    {/* Usuario que registró */}
-                                    {t.usuario_nombre && (
-                                        <div>
-                                            <p className="text-xs text-gray-500">Registrado por</p>
-                                            <p className="text-amber-400 font-medium">{t.usuario_nombre}</p>
-                                        </div>
-                                    )}
-
-                                    {/* Editado por */}
-                                    {t.editado_por && (
-                                        <div>
-                                            <p className="text-xs text-gray-500">Editado por</p>
-                                            <p className="text-orange-400 font-medium">{t.editado_por}</p>
-                                        </div>
-                                    )}
-
-                                    {/* Monto grande */}
-                                    <div className="col-span-2 mt-2 pt-2 border-t border-white/5">
-                                        <div className="flex justify-between items-center">
-                                            <p className="text-xs text-gray-500">Monto Total</p>
-                                            <p className={`text-xl font-bold ${t.tipo_movimiento === 'INGRESO' ? 'text-green-400' :
+                                            <p className="text-xs text-gray-500">Tipo</p>
+                                            <p className={`font-medium ${t.tipo_movimiento === 'INGRESO' ? 'text-green-400' :
                                                 t.tipo_movimiento === 'EGRESO' ? 'text-red-400' : 'text-blue-400'
-                                                }`}>
-                                                {formatMoney(t.monto)}
-                                            </p>
+                                                }`}>{t.tipo_movimiento}</p>
+                                        </div>
+
+                                        {/* Categoría */}
+                                        <div>
+                                            <p className="text-xs text-gray-500">Categoría</p>
+                                            <p className="text-gray-300">{getCategoryName(t.categoria)}</p>
+                                        </div>
+
+                                        {/* Caja Origen */}
+                                        <div>
+                                            <p className="text-xs text-gray-500">Caja {t.tipo_movimiento === 'TRANSFERENCIA' ? 'Origen' : ''}</p>
+                                            <p className="text-gray-300">{getCajaName(t.caja_origen_id)}</p>
+                                        </div>
+
+                                        {/* Caja Destino (solo transferencias) */}
+                                        {t.tipo_movimiento === 'TRANSFERENCIA' && t.caja_destino_id && (
+                                            <div>
+                                                <p className="text-xs text-gray-500">Caja Destino</p>
+                                                <p className="text-gray-300">{getCajaName(t.caja_destino_id)}</p>
+                                            </div>
+                                        )}
+
+                                        {/* Tercero */}
+                                        {t.tercero_id && (
+                                            <div>
+                                                <p className="text-xs text-gray-500">Proveedor / Beneficiario</p>
+                                                <p className="text-gray-300">{getTerceroName(t.tercero_id)}</p>
+                                            </div>
+                                        )}
+
+                                        {/* Proyecto */}
+                                        {t.proyecto_id && (
+                                            <div>
+                                                <p className="text-xs text-gray-500">Proyecto / Obra</p>
+                                                <p className="text-gray-300">{getProyectoName(t.proyecto_id)}</p>
+                                            </div>
+                                        )}
+
+                                        {/* Empresa */}
+                                        {t.empresa_id && (
+                                            <div>
+                                                <p className="text-xs text-gray-500">Empresa</p>
+                                                <p className="text-gray-300">{getEmpresaName ? getEmpresaName(t.empresa_id) : t.empresa_id}</p>
+                                            </div>
+                                        )}
+
+                                        {/* Descripción completa */}
+                                        {t.descripcion && (
+                                            <div className="col-span-2">
+                                                <p className="text-xs text-gray-500">Descripción</p>
+                                                <p className="text-gray-300">{t.descripcion}</p>
+                                            </div>
+                                        )}
+
+                                        {/* Usuario que registró */}
+                                        {t.usuario_nombre && (
+                                            <div>
+                                                <p className="text-xs text-gray-500">Registrado por</p>
+                                                <p className="text-amber-400 font-medium">{t.usuario_nombre}</p>
+                                            </div>
+                                        )}
+
+                                        {/* Editado por */}
+                                        {t.editado_por && (
+                                            <div>
+                                                <p className="text-xs text-gray-500">Editado por</p>
+                                                <p className="text-orange-400 font-medium">{t.editado_por}</p>
+                                            </div>
+                                        )}
+
+                                        {/* Monto grande */}
+                                        <div className="col-span-2 mt-2 pt-2 border-t border-white/5">
+                                            <div className="flex justify-between items-center">
+                                                <p className="text-xs text-gray-500">Monto Total</p>
+                                                <p className={`text-xl font-bold ${t.tipo_movimiento === 'INGRESO' ? 'text-green-400' :
+                                                    t.tipo_movimiento === 'EGRESO' ? 'text-red-400' : 'text-blue-400'
+                                                    }`}>
+                                                    {formatMoney(t.monto)}
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
+
+                                    {t.soporte_url && (
+                                        <button
+                                            onClick={() => setPreviewImage({ url: t.soporte_url, title: t.descripcion })}
+                                            className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors text-sm font-medium"
+                                        >
+                                            <ImageIcon size={16} />
+                                            Ver soporte adjunto
+                                        </button>
+                                    )}
                                 </div>
                             )}
                         </div>
                     ))}
                 </div>
             )}
+
+            {/* Image Preview Modal */}
+            <ImagePreviewModal
+                isOpen={!!previewImage}
+                onClose={() => setPreviewImage(null)}
+                imageUrl={previewImage?.url}
+                title={previewImage?.title}
+            />
         </div>
     );
 }
