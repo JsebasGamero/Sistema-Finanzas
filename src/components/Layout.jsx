@@ -11,13 +11,21 @@ import {
     Wifi,
     WifiOff,
     RefreshCw,
-    Coins
+    Coins,
+    LogOut,
+    User
 } from 'lucide-react';
 import useOnlineStatus from '../hooks/useOnlineStatus';
+import { useAuth } from '../context/AuthContext';
 
-export default function Layout({ children, activeTab, setActiveTab, pendingSync, onSync }) {
+export default function Layout({ children, activeTab, setActiveTab, pendingSync, onSync, onLogout }) {
     const [menuOpen, setMenuOpen] = useState(false);
     const isOnline = useOnlineStatus();
+    const { currentUser } = useAuth();
+
+    const userInitials = currentUser?.nombre
+        ? currentUser.nombre.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+        : '??';
 
     const tabs = [
         { id: 'dashboard', label: 'Inicio', icon: Home },
@@ -62,8 +70,19 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                     })}
                 </nav>
 
-                {/* Sidebar Footer - Status */}
+                {/* Sidebar Footer - User + Status */}
                 <div className="p-4 border-t border-white/10 space-y-3">
+                    {/* User info */}
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                            {userInitials}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-white truncate">{currentUser?.nombre}</p>
+                            <p className="text-xs text-gray-500 truncate">{currentUser?.email}</p>
+                        </div>
+                    </div>
+
                     <div className={`sync-indicator ${isOnline ? 'online' : 'offline'} justify-center`}>
                         {isOnline ? <Wifi size={14} /> : <WifiOff size={14} className="pulse" />}
                         <span>{isOnline ? 'Conectado' : 'Sin conexión'}</span>
@@ -78,6 +97,14 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                             Sincronizar ({pendingSync})
                         </button>
                     )}
+
+                    <button
+                        onClick={onLogout}
+                        className="w-full flex items-center justify-center gap-2 text-gray-400 hover:text-red-400 px-3 py-2 rounded-lg text-sm hover:bg-red-500/10 transition-colors"
+                    >
+                        <LogOut size={16} />
+                        Cerrar sesión
+                    </button>
                 </div>
             </aside>
 
@@ -113,6 +140,18 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                                 {pendingSync}
                             </button>
                         )}
+
+                        {/* Mobile user avatar + logout */}
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white text-xs font-bold">
+                            {userInitials}
+                        </div>
+                        <button
+                            onClick={onLogout}
+                            className="text-gray-400 hover:text-red-400 p-1"
+                            title="Cerrar sesión"
+                        >
+                            <LogOut size={18} />
+                        </button>
                     </div>
                 </header>
 
@@ -131,6 +170,9 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                                 Sincronizar {pendingSync} pendiente(s)
                             </button>
                         )}
+                        <span className="text-sm text-gray-400">
+                            Hola, <span className="text-white font-medium">{currentUser?.nombre}</span>
+                        </span>
                     </div>
                 </header>
 

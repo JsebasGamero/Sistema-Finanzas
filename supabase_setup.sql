@@ -84,6 +84,10 @@ CREATE TABLE IF NOT EXISTS transacciones (
   sincronizado BOOLEAN DEFAULT TRUE,
   device_id TEXT, -- Identificador del dispositivo que creó la transacción
   
+  -- Tracking de usuarios
+  usuario_nombre TEXT, -- Nombre del usuario que registró
+  editado_por TEXT, -- Nombre del usuario que editó (si aplica)
+  
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -108,6 +112,7 @@ CREATE TABLE IF NOT EXISTS deudas_cajas (
   fecha_prestamo DATE DEFAULT CURRENT_DATE,
   estado TEXT DEFAULT 'PENDIENTE' CHECK (estado IN ('PENDIENTE', 'PARCIAL', 'PAGADA')),
   pagos JSONB DEFAULT '[]',
+  usuario_nombre TEXT, -- Nombre del usuario que registró
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -124,6 +129,7 @@ CREATE TABLE IF NOT EXISTS deudas_terceros (
   estado TEXT DEFAULT 'PENDIENTE' CHECK (estado IN ('PENDIENTE', 'PARCIAL', 'PAGADA')),
   descripcion TEXT,
   pagos JSONB DEFAULT '[]',
+  usuario_nombre TEXT, -- Nombre del usuario que registró
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -398,3 +404,13 @@ HAVING SUM(t.monto) > 0;
 -- SELECT * FROM cajas;
 -- SELECT * FROM proyectos;
 -- SELECT * FROM categorias;
+
+-- =====================================================
+-- 12. MIGRACIÓN: AGREGAR COLUMNAS DE TRACKING DE USUARIO
+-- Ejecutar SOLO si ya tienes las tablas creadas
+-- =====================================================
+
+-- ALTER TABLE transacciones ADD COLUMN IF NOT EXISTS usuario_nombre TEXT;
+-- ALTER TABLE transacciones ADD COLUMN IF NOT EXISTS editado_por TEXT;
+-- ALTER TABLE deudas_cajas ADD COLUMN IF NOT EXISTS usuario_nombre TEXT;
+-- ALTER TABLE deudas_terceros ADD COLUMN IF NOT EXISTS usuario_nombre TEXT;

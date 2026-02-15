@@ -4,12 +4,14 @@ import { X, Save, ArrowRight, ArrowDownLeft, ArrowUpRight, ArrowLeftRight } from
 import { db, generateUUID } from '../services/db';
 import { addToSyncQueue, processSyncQueue } from '../services/syncService';
 import AutocompleteInput from './AutocompleteInput';
+import { useAuth } from '../context/AuthContext';
 export default function TransactionEditModal({
     isOpen,
     transaction,
     onSave,
     onClose
 }) {
+    const { currentUser } = useAuth();
     const [formData, setFormData] = useState({});
     const [cajas, setCajas] = useState([]);
     const [proyectos, setProyectos] = useState([]);
@@ -158,7 +160,8 @@ export default function TransactionEditModal({
         try {
             await onSave({
                 ...formData,
-                monto: parseFloat(formData.monto)
+                monto: parseFloat(formData.monto),
+                editado_por: currentUser?.nombre || 'Desconocido'
             });
             onClose();
         } catch (error) {

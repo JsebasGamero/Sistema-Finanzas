@@ -14,8 +14,10 @@ import {
 } from 'lucide-react';
 import { db, generateUUID } from '../services/db';
 import { addToSyncQueue, processSyncQueue } from '../services/syncService';
+import { useAuth } from '../context/AuthContext';
 
 export default function DeudaCajasPanel({ onDebtChanged }) {
+    const { currentUser } = useAuth();
     const [deudas, setDeudas] = useState([]);
     const [cajas, setCajas] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -126,6 +128,7 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
             estado: 'PENDIENTE',
             descripcion: formData.descripcion || `Préstamo de ${getCajaName(formData.cajaAcreedoraId)} a ${getCajaName(formData.cajaDeudoraId)}`,
             pagos: [],
+            usuario_nombre: currentUser?.nombre || 'Desconocido',
             created_at: new Date().toISOString()
         };
 
@@ -169,7 +172,8 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
         const newEstado = newMontoPendiente === 0 ? 'PAGADA' : 'PARCIAL';
         const pagos = [...(deuda.pagos || []), {
             monto: amount,
-            fecha: new Date().toISOString()
+            fecha: new Date().toISOString(),
+            usuario_nombre: currentUser?.nombre || 'Desconocido'
         }];
 
         try {
@@ -193,6 +197,7 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
                 caja_destino_id: deuda.caja_acreedora_id,
                 tercero_id: null,
                 sincronizado: false,
+                usuario_nombre: currentUser?.nombre || 'Desconocido',
                 created_at: new Date().toISOString()
             };
 

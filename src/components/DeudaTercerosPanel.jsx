@@ -19,8 +19,10 @@ import {
 import { db, generateUUID } from '../services/db';
 import { addToSyncQueue, processSyncQueue } from '../services/syncService';
 import AutocompleteInput from './AutocompleteInput';
+import { useAuth } from '../context/AuthContext';
 
 export default function DeudaTercerosPanel({ onDebtChanged }) {
+    const { currentUser } = useAuth();
     const [deudas, setDeudas] = useState([]);
     const [terceros, setTerceros] = useState([]);
     const [proyectos, setProyectos] = useState([]);
@@ -208,6 +210,7 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
             estado: 'PENDIENTE',
             descripcion: formData.descripcion || `Deuda a ${getTerceroName(formData.terceroId)}`,
             pagos: [],
+            usuario_nombre: currentUser?.nombre || 'Desconocido',
             created_at: new Date().toISOString()
         };
 
@@ -266,7 +269,8 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
             monto: amount,
             fecha: new Date().toISOString(),
             descripcion: paymentData.descripcion || 'Abono',
-            caja_id: paymentData.cajaId
+            caja_id: paymentData.cajaId,
+            usuario_nombre: currentUser?.nombre || 'Desconocido'
         }];
 
         try {
@@ -291,6 +295,7 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
                 tercero_id: deuda.tercero_id,
                 empresa_id: deuda.empresa_id || null,
                 sincronizado: false,
+                usuario_nombre: currentUser?.nombre || 'Desconocido',
                 created_at: new Date().toISOString()
             };
 

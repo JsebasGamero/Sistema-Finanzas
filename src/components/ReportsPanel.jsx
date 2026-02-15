@@ -66,6 +66,7 @@ export default function ReportsPanel() {
     const [filterProyecto, setFilterProyecto] = useState('');
     const [filterTercero, setFilterTercero] = useState('');
     const [filterEmpresa, setFilterEmpresa] = useState('');
+    const [filterUsuario, setFilterUsuario] = useState('');
     const [showFilters, setShowFilters] = useState(false);
 
     // Sorting
@@ -205,6 +206,11 @@ export default function ReportsPanel() {
             filtered = filtered.filter(t => t.tercero_id === filterTercero);
         }
 
+        // Usuario
+        if (filterUsuario) {
+            filtered = filtered.filter(t => t.usuario_nombre === filterUsuario);
+        }
+
         // Sort
         filtered.sort((a, b) => {
             let aVal = a[sortField];
@@ -220,7 +226,7 @@ export default function ReportsPanel() {
         });
 
         return filtered;
-    }, [transacciones, searchTerm, dateFrom, dateTo, filterTipo, filterCaja, filterProyecto, filterTercero, sortField, sortDirection]);
+    }, [transacciones, searchTerm, dateFrom, dateTo, filterTipo, filterCaja, filterProyecto, filterTercero, filterUsuario, sortField, sortDirection]);
 
     // Calculate provider balances (exclude debt payments to avoid double counting)
     const providerBalances = useMemo(() => {
@@ -423,6 +429,7 @@ export default function ReportsPanel() {
         setFilterCaja('');
         setFilterProyecto('');
         setFilterTercero('');
+        setFilterUsuario('');
     }
 
     if (loading) {
@@ -579,6 +586,21 @@ export default function ReportsPanel() {
                                     ))}
                                 </select>
                             </div>
+
+                            {/* Usuario */}
+                            <div>
+                                <label className="label">Usuario</label>
+                                <select
+                                    value={filterUsuario}
+                                    onChange={(e) => setFilterUsuario(e.target.value)}
+                                    className="input-field"
+                                >
+                                    <option value="">Todos</option>
+                                    {[...new Set(transacciones.map(t => t.usuario_nombre).filter(Boolean))].map(u => (
+                                        <option key={u} value={u}>{u}</option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
 
                         <button
@@ -598,6 +620,7 @@ export default function ReportsPanel() {
                     getCajaName={getCajaName}
                     getTerceroName={getTerceroName}
                     getProyectoName={getProyectoName}
+                    getCategoryName={getCategoryName}
                     formatMoney={formatMoney}
                     formatDate={formatDate}
                     sortField={sortField}
@@ -654,7 +677,7 @@ export default function ReportsPanel() {
 }
 
 // Movimientos Report Component - Expandable cards with full details
-function MovimientosReport({ transactions, getCajaName, getTerceroName, getProyectoName, getEmpresaName, formatMoney, formatDate, sortField, sortDirection, onSort }) {
+function MovimientosReport({ transactions, getCajaName, getTerceroName, getProyectoName, getEmpresaName, getCategoryName, formatMoney, formatDate, sortField, sortDirection, onSort }) {
     const [expandedId, setExpandedId] = useState(null);
     const SortIcon = sortDirection === 'asc' ? ChevronUp : ChevronDown;
 
@@ -777,6 +800,22 @@ function MovimientosReport({ transactions, getCajaName, getTerceroName, getProye
                                         <div className="col-span-2">
                                             <p className="text-xs text-gray-500">Descripción</p>
                                             <p className="text-gray-300">{t.descripcion}</p>
+                                        </div>
+                                    )}
+
+                                    {/* Usuario que registró */}
+                                    {t.usuario_nombre && (
+                                        <div>
+                                            <p className="text-xs text-gray-500">Registrado por</p>
+                                            <p className="text-amber-400 font-medium">{t.usuario_nombre}</p>
+                                        </div>
+                                    )}
+
+                                    {/* Editado por */}
+                                    {t.editado_por && (
+                                        <div>
+                                            <p className="text-xs text-gray-500">Editado por</p>
+                                            <p className="text-orange-400 font-medium">{t.editado_por}</p>
                                         </div>
                                     )}
 

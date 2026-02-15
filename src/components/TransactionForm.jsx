@@ -7,8 +7,10 @@ import ConfirmModal from './ConfirmModal';
 import DeudaCajasPanel from './DeudaCajasPanel';
 import DeudaTercerosPanel from './DeudaTercerosPanel';
 import AutocompleteInput from './AutocompleteInput';
+import { useAuth } from '../context/AuthContext';
 
 export default function TransactionForm({ onTransactionAdded }) {
+    const { currentUser } = useAuth();
     // Section selector: 'transaccion' or 'deudas'
     const [activeSection, setActiveSection] = useState('transaccion');
 
@@ -227,6 +229,7 @@ export default function TransactionForm({ onTransactionAdded }) {
             caja_destino_id: tipo === 'TRANSFERENCIA' ? cajaDestinoId : null,
             tercero_id: terceroId || null,
             soporte_url: null,
+            usuario_nombre: currentUser?.nombre || 'Desconocido',
             // For display in confirmation
             _cajaOrigenNombre: cajaOrigen?.nombre,
             _cajaDestinoNombre: cajaDestino?.nombre,
