@@ -66,19 +66,19 @@ export default function ProjectDashboard() {
             // Calculate totals
             const totalIngresos = transacciones
                 .filter(t => t.tipo_movimiento === 'INGRESO')
-                .reduce((sum, t) => sum + t.monto, 0);
+                .reduce((sum, t) => sum + (parseFloat(t.monto) || 0), 0);
 
             const totalEgresos = transacciones
                 .filter(t => t.tipo_movimiento === 'EGRESO')
-                .reduce((sum, t) => sum + t.monto, 0);
+                .reduce((sum, t) => sum + (parseFloat(t.monto) || 0), 0);
 
-            const totalBalance = cajas.reduce((sum, c) => sum + (c.saldo_actual || 0), 0);
+            const totalBalance = cajas.reduce((sum, c) => sum + (parseFloat(c.saldo_actual) || 0), 0);
 
             // Balance by company
             const empresasMap = Object.fromEntries(empresas.map(e => [e.id, { ...e, balance: 0 }]));
             cajas.forEach(c => {
                 if (empresasMap[c.empresa_id]) {
-                    empresasMap[c.empresa_id].balance += c.saldo_actual || 0;
+                    empresasMap[c.empresa_id].balance += (parseFloat(c.saldo_actual) || 0);
                 }
             });
             const empresasBalance = Object.values(empresasMap)
@@ -91,7 +91,7 @@ export default function ProjectDashboard() {
                 .filter(t => t.tipo_movimiento === 'EGRESO' && t.proyecto_id)
                 .forEach(t => {
                     if (proyectosMap[t.proyecto_id]) {
-                        proyectosMap[t.proyecto_id].gastos += t.monto;
+                        proyectosMap[t.proyecto_id].gastos += (parseFloat(t.monto) || 0);
                     }
                 });
             const gastosProyecto = Object.values(proyectosMap)
@@ -192,7 +192,7 @@ export default function ProjectDashboard() {
         if (!cajaId) return;
         const caja = await db.cajas.get(cajaId);
         if (caja) {
-            const newBalance = (caja.saldo_actual || 0) + amount;
+            const newBalance = (parseFloat(caja.saldo_actual) || 0) + amount;
             await db.cajas.update(cajaId, { saldo_actual: newBalance });
 
             // Add to sync queue (works offline)

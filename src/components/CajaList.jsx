@@ -35,7 +35,7 @@ export default function CajaList() {
         ? cajas
         : cajas.filter(c => c.tipo === filter);
 
-    const totalBalance = cajas.reduce((sum, c) => sum + (c.saldo_actual || 0), 0);
+    const totalBalance = cajas.reduce((sum, c) => sum + (parseFloat(c.saldo_actual) || 0), 0);
 
     const getIcon = (tipo) => {
         switch (tipo) {

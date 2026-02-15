@@ -29,6 +29,7 @@ import { db } from '../services/db';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import ImagePreviewModal from './ImagePreviewModal';
+import TablaReport from './TablaReport';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     PieChart as RechartsPie, Pie, Cell, Legend,
@@ -42,7 +43,8 @@ const REPORT_TYPES = [
     { id: 'cajas', name: 'Saldo Cajas', icon: Wallet },
     { id: 'proyectos', name: 'Por Proyecto', icon: FolderOpen },
     { id: 'deudas', name: 'Deudas', icon: CreditCard },
-    { id: 'resumen', name: 'Resumen', icon: PieChart }
+    { id: 'resumen', name: 'Resumen', icon: PieChart },
+    { id: 'tabla', name: 'Tabla Excel', icon: BarChart3 }
 ];
 
 export default function ReportsPanel() {
@@ -305,7 +307,7 @@ export default function ReportsPanel() {
             .filter(t => t.tipo_movimiento === 'TRANSFERENCIA')
             .reduce((sum, t) => sum + t.monto, 0);
 
-        const saldoTotal = cajas.reduce((sum, c) => sum + (c.saldo_actual || 0), 0);
+        const saldoTotal = cajas.reduce((sum, c) => sum + (parseFloat(c.saldo_actual) || 0), 0);
 
         const byCategory = {};
         transacciones
@@ -478,140 +480,142 @@ export default function ReportsPanel() {
                 })}
             </div>
 
-            {/* Search and Filters */}
-            <div className="space-y-3">
-                <div className="flex gap-2">
-                    <div className="relative flex-1">
-                        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input
-                            type="text"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            placeholder="Buscar por descripción, categoría, caja..."
-                            className="input-field"
-                            style={{ paddingLeft: '40px' }}
-                        />
-                    </div>
-                    <button
-                        onClick={() => setShowFilters(!showFilters)}
-                        className={`tab-pill flex items-center gap-2 ${showFilters ? 'active' : ''}`}
-                        style={{ borderRadius: 'var(--radius-md)' }}
-                    >
-                        <Filter size={16} />
-                        Filtros
-                    </button>
-                </div>
-
-                {showFilters && (
-                    <div className="card space-y-3">
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                            {/* Date From */}
-                            <div>
-                                <label className="label">Desde</label>
-                                <input
-                                    type="date"
-                                    value={dateFrom}
-                                    onChange={(e) => setDateFrom(e.target.value)}
-                                    className="input-field"
-                                />
-                            </div>
-
-                            {/* Date To */}
-                            <div>
-                                <label className="label">Hasta</label>
-                                <input
-                                    type="date"
-                                    value={dateTo}
-                                    onChange={(e) => setDateTo(e.target.value)}
-                                    className="input-field"
-                                />
-                            </div>
-
-                            {/* Type */}
-                            <div>
-                                <label className="label">Tipo</label>
-                                <select
-                                    value={filterTipo}
-                                    onChange={(e) => setFilterTipo(e.target.value)}
-                                    className="input-field"
-                                >
-                                    <option value="">Todos</option>
-                                    <option value="INGRESO">Ingresos</option>
-                                    <option value="EGRESO">Egresos</option>
-                                    <option value="TRANSFERENCIA">Transferencias</option>
-                                </select>
-                            </div>
-
-                            {/* Caja */}
-                            <div>
-                                <label className="label">Caja</label>
-                                <select
-                                    value={filterCaja}
-                                    onChange={(e) => setFilterCaja(e.target.value)}
-                                    className="input-field"
-                                >
-                                    <option value="">Todas</option>
-                                    {cajas.map(c => (
-                                        <option key={c.id} value={c.id}>{c.nombre}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            {/* Proyecto */}
-                            <div>
-                                <label className="label">Proyecto</label>
-                                <select
-                                    value={filterProyecto}
-                                    onChange={(e) => setFilterProyecto(e.target.value)}
-                                    className="input-field"
-                                >
-                                    <option value="">Todos</option>
-                                    {proyectos.map(p => (
-                                        <option key={p.id} value={p.id}>{p.nombre}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            {/* Tercero */}
-                            <div>
-                                <label className="label">Proveedor</label>
-                                <select
-                                    value={filterTercero}
-                                    onChange={(e) => setFilterTercero(e.target.value)}
-                                    className="input-field"
-                                >
-                                    <option value="">Todos</option>
-                                    {terceros.map(t => (
-                                        <option key={t.id} value={t.id}>{t.nombre}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            {/* Usuario */}
-                            <div>
-                                <label className="label">Usuario</label>
-                                <select
-                                    value={filterUsuario}
-                                    onChange={(e) => setFilterUsuario(e.target.value)}
-                                    className="input-field"
-                                >
-                                    <option value="">Todos</option>
-                                    {[...new Set(transacciones.map(t => t.usuario_nombre).filter(Boolean))].map(u => (
-                                        <option key={u} value={u}>{u}</option>
-                                    ))}
-                                </select>
-                            </div>
+            {/* Search and Filters - hidden for tabla view which has its own */}
+            {activeReport !== 'tabla' && (
+                <div className="space-y-3">
+                    <div className="flex gap-2">
+                        <div className="relative flex-1">
+                            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input
+                                type="text"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                placeholder="Buscar por descripción, categoría, caja..."
+                                className="input-field"
+                                style={{ paddingLeft: '40px' }}
+                            />
                         </div>
-
                         <button
-                            onClick={clearFilters}
-                            className="text-sm text-gold hover:underline"
+                            onClick={() => setShowFilters(!showFilters)}
+                            className={`tab-pill flex items-center gap-2 ${showFilters ? 'active' : ''}`}
+                            style={{ borderRadius: 'var(--radius-md)' }}
                         >
-                            Limpiar filtros
+                            <Filter size={16} />
+                            Filtros
                         </button>
                     </div>
-                )}
-            </div>
+
+                    {showFilters && (
+                        <div className="card space-y-3">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                {/* Date From */}
+                                <div>
+                                    <label className="label">Desde</label>
+                                    <input
+                                        type="date"
+                                        value={dateFrom}
+                                        onChange={(e) => setDateFrom(e.target.value)}
+                                        className="input-field"
+                                    />
+                                </div>
+
+                                {/* Date To */}
+                                <div>
+                                    <label className="label">Hasta</label>
+                                    <input
+                                        type="date"
+                                        value={dateTo}
+                                        onChange={(e) => setDateTo(e.target.value)}
+                                        className="input-field"
+                                    />
+                                </div>
+
+                                {/* Type */}
+                                <div>
+                                    <label className="label">Tipo</label>
+                                    <select
+                                        value={filterTipo}
+                                        onChange={(e) => setFilterTipo(e.target.value)}
+                                        className="input-field"
+                                    >
+                                        <option value="">Todos</option>
+                                        <option value="INGRESO">Ingresos</option>
+                                        <option value="EGRESO">Egresos</option>
+                                        <option value="TRANSFERENCIA">Transferencias</option>
+                                    </select>
+                                </div>
+
+                                {/* Caja */}
+                                <div>
+                                    <label className="label">Caja</label>
+                                    <select
+                                        value={filterCaja}
+                                        onChange={(e) => setFilterCaja(e.target.value)}
+                                        className="input-field"
+                                    >
+                                        <option value="">Todas</option>
+                                        {cajas.map(c => (
+                                            <option key={c.id} value={c.id}>{c.nombre}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Proyecto */}
+                                <div>
+                                    <label className="label">Proyecto</label>
+                                    <select
+                                        value={filterProyecto}
+                                        onChange={(e) => setFilterProyecto(e.target.value)}
+                                        className="input-field"
+                                    >
+                                        <option value="">Todos</option>
+                                        {proyectos.map(p => (
+                                            <option key={p.id} value={p.id}>{p.nombre}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Tercero */}
+                                <div>
+                                    <label className="label">Proveedor</label>
+                                    <select
+                                        value={filterTercero}
+                                        onChange={(e) => setFilterTercero(e.target.value)}
+                                        className="input-field"
+                                    >
+                                        <option value="">Todos</option>
+                                        {terceros.map(t => (
+                                            <option key={t.id} value={t.id}>{t.nombre}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Usuario */}
+                                <div>
+                                    <label className="label">Usuario</label>
+                                    <select
+                                        value={filterUsuario}
+                                        onChange={(e) => setFilterUsuario(e.target.value)}
+                                        className="input-field"
+                                    >
+                                        <option value="">Todos</option>
+                                        {[...new Set(transacciones.map(t => t.usuario_nombre).filter(Boolean))].map(u => (
+                                            <option key={u} value={u}>{u}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={clearFilters}
+                                className="text-sm text-gold hover:underline"
+                            >
+                                Limpiar filtros
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Active Report Content */}
             {activeReport === 'movimientos' && (
@@ -671,6 +675,10 @@ export default function ReportsPanel() {
                     formatMoney={formatMoney}
                     transacciones={transacciones}
                 />
+            )}
+
+            {activeReport === 'tabla' && (
+                <TablaReport />
             )}
         </div>
     );
@@ -1059,8 +1067,8 @@ function ProveedoresReport({ providerBalances, deudasTerceros, terceros, formatM
 
 // Cajas Report Component
 function CajasReport({ cajas, empresas, formatMoney, getEmpresaName }) {
-    const totalPositivo = cajas.filter(c => c.saldo_actual > 0).reduce((s, c) => s + c.saldo_actual, 0);
-    const totalNegativo = cajas.filter(c => c.saldo_actual < 0).reduce((s, c) => s + c.saldo_actual, 0);
+    const totalPositivo = cajas.filter(c => parseFloat(c.saldo_actual) > 0).reduce((s, c) => s + (parseFloat(c.saldo_actual) || 0), 0);
+    const totalNegativo = cajas.filter(c => parseFloat(c.saldo_actual) < 0).reduce((s, c) => s + (parseFloat(c.saldo_actual) || 0), 0);
 
     // Group by empresa
     const byEmpresa = {};
@@ -1070,7 +1078,7 @@ function CajasReport({ cajas, empresas, formatMoney, getEmpresaName }) {
             byEmpresa[empId] = { cajas: [], total: 0 };
         }
         byEmpresa[empId].cajas.push(c);
-        byEmpresa[empId].total += c.saldo_actual || 0;
+        byEmpresa[empId].total += (parseFloat(c.saldo_actual) || 0);
     });
 
     return (

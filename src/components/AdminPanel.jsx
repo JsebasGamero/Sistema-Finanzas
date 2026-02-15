@@ -144,10 +144,19 @@ export default function AdminPanel() {
         try {
             const now = new Date().toISOString();
 
+            // Parse numeric fields from form inputs (HTML returns strings)
+            const parsedData = { ...formData };
+            const numericFields = ['saldo_actual', 'presupuesto_estimado', 'nit'];
+            for (const field of numericFields) {
+                if (parsedData[field] !== undefined && parsedData[field] !== '') {
+                    parsedData[field] = parseFloat(parsedData[field]) || 0;
+                }
+            }
+
             if (editingItem) {
                 // Update existing
-                const updated = { ...editingItem, ...formData, updated_at: now };
-                await db[activeEntity].update(editingItem.id, formData);
+                const updated = { ...editingItem, ...parsedData, updated_at: now };
+                await db[activeEntity].update(editingItem.id, parsedData);
 
                 // Add to sync queue for Supabase
                 await addToSyncQueue(activeEntity, 'UPDATE', updated);
@@ -156,7 +165,7 @@ export default function AdminPanel() {
                 // Create new
                 const newItem = {
                     id: generateUUID(),
-                    ...formData,
+                    ...parsedData,
                     created_at: now,
                     updated_at: now
                 };
