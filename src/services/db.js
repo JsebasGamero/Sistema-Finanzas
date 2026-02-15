@@ -134,35 +134,31 @@ export async function syncFromSupabase() {
             console.log('⚠️ deudas_terceros table might not exist in Supabase yet');
         }
 
-        // Clear and update local DB with Supabase data
-        await db.empresas.clear();
-        await db.cajas.clear();
-        await db.proyectos.clear();
-        await db.terceros.clear();
-        await db.transacciones.clear();
+        // Update local DB with Supabase data (using bulkPut to merge/update without deleting local-only data)
+        // We do NOT clear tables because that would wipe unsynced local data!
 
         if (empresas && empresas.length > 0) {
-            await db.empresas.bulkAdd(empresas);
+            await db.empresas.bulkPut(empresas);
             console.log(`✅ Synced ${empresas.length} empresas`);
         }
 
         if (cajas && cajas.length > 0) {
-            await db.cajas.bulkAdd(cajas);
+            await db.cajas.bulkPut(cajas);
             console.log(`✅ Synced ${cajas.length} cajas`);
         }
 
         if (proyectos && proyectos.length > 0) {
-            await db.proyectos.bulkAdd(proyectos);
+            await db.proyectos.bulkPut(proyectos);
             console.log(`✅ Synced ${proyectos.length} proyectos`);
         }
 
         if (terceros && terceros.length > 0) {
-            await db.terceros.bulkAdd(terceros);
+            await db.terceros.bulkPut(terceros);
             console.log(`✅ Synced ${terceros.length} terceros`);
         }
 
         if (transacciones && transacciones.length > 0) {
-            await db.transacciones.bulkAdd(transacciones);
+            await db.transacciones.bulkPut(transacciones);
             console.log(`✅ Synced ${transacciones.length} transacciones`);
 
             // NOTE: We trust the saldo_actual from Supabase.
@@ -171,15 +167,13 @@ export async function syncFromSupabase() {
 
         // Sync deudas_cajas
         if (deudasCajas.length > 0) {
-            await db.deudas_cajas.clear();
-            await db.deudas_cajas.bulkAdd(deudasCajas);
+            await db.deudas_cajas.bulkPut(deudasCajas);
             console.log(`✅ Synced ${deudasCajas.length} deudas_cajas`);
         }
 
         // Sync deudas_terceros
         if (deudasTerceros.length > 0) {
-            await db.deudas_terceros.clear();
-            await db.deudas_terceros.bulkAdd(deudasTerceros);
+            await db.deudas_terceros.bulkPut(deudasTerceros);
             console.log(`✅ Synced ${deudasTerceros.length} deudas_terceros`);
         }
 

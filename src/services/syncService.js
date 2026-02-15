@@ -41,7 +41,8 @@ export async function processSyncQueue() {
 
             switch (operation.operacion) {
                 case 'INSERT':
-                    result = await supabase.from(operation.tabla).insert(supabaseData);
+                    // Use upsert to handle duplicates gracefully
+                    result = await supabase.from(operation.tabla).upsert(supabaseData, { onConflict: 'id' });
                     break;
                 case 'UPDATE':
                     result = await supabase.from(operation.tabla).update(supabaseData).eq('id', supabaseData.id);
@@ -69,16 +70,17 @@ export async function processSyncQueue() {
                     continue;
                 }
 
-                // 23503 = Foreign key violation (proyecto_id, tercero_id, etc. doesn't exist)
-                // Try inserting with null foreign keys
+                // 23503 = Foreign key violation - try with null foreign keys
                 if (errorCode === '23503') {
                     console.log('⚠️ Foreign key error, retrying with null foreign keys...');
                     const cleanData = { ...supabaseData };
-                    // Set potentially invalid foreign keys to null
                     if (cleanData.proyecto_id) cleanData.proyecto_id = null;
                     if (cleanData.tercero_id) cleanData.tercero_id = null;
+                    if (cleanData.empresa_id) cleanData.empresa_id = null;
+                    if (cleanData.caja_origen_id) cleanData.caja_origen_id = null;
+                    if (cleanData.caja_destino_id) cleanData.caja_destino_id = null;
 
-                    const retryResult = await supabase.from(operation.tabla).insert(cleanData);
+                    const retryResult = await supabase.from(operation.tabla).upsert(cleanData, { onConflict: 'id' });
 
                     if (!retryResult.error || retryResult.status === 409) {
                         console.log('✅ Synced with null foreign keys');
@@ -89,6 +91,19 @@ export async function processSyncQueue() {
                         syncedCount++;
                         continue;
                     }
+                }
+
+                // Permanent errors that will never succeed on retry - remove from queue
+                // 23514 = Check constraint violation (invalid enum value)
+                // 23502 = Not null violation
+                // 42xxx = Syntax/schema errors
+                // 400 = Bad request
+                const permanentErrorCodes = ['23514', '23502', '42601', '42P01', '42703'];
+                if (permanentErrorCodes.includes(errorCode) || errorStatus === 400) {
+                    console.warn(`⚠️ Permanent error (${errorCode}), removing from queue:`, result.error.message);
+                    await db.sync_queue.delete(operation.id);
+                    errors.push({ operation, error: result.error, permanent: true });
+                    continue;
                 }
 
                 console.error('❌ Sync error:', result.error);
@@ -225,11 +240,17 @@ export async function createTransaction(transactionData) {
 }
 
 // Update caja balance locally
+// Update caja balance locally and queue for sync
 async function updateCajaBalance(cajaId, amount) {
     const caja = await db.cajas.get(cajaId);
     if (caja) {
-        const newBalance = (caja.saldo_actual || 0) + amount;
+        const newBalance = (parseFloat(caja.saldo_actual) || 0) + amount;
+
+        // Update local DB
         await db.cajas.update(cajaId, { saldo_actual: newBalance });
+
+        // Add to sync queue
+        await addToSyncQueue('cajas', 'UPDATE', { id: cajaId, saldo_actual: newBalance });
     }
 }
 

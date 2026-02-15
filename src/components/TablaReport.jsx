@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, themeQuartz } from 'ag-grid-community';
-import { Download, FileSpreadsheet, Table2, ChevronDown } from 'lucide-react';
+import { Download, FileSpreadsheet, Table2, ChevronDown, Filter, BarChart3, Wallet, Building2, FolderOpen, Users, FileText, ArrowLeftRight, Calendar, Tag, Landmark, User, FolderKanban, CheckCircle, Clock } from 'lucide-react';
 import { db } from '../services/db';
 import * as XLSX from 'xlsx';
 
@@ -29,9 +29,13 @@ const darkTheme = themeQuartz.withParams({
 
 // Data source options
 const DATA_SOURCES = [
-    { id: 'transacciones', label: 'Transacciones' },
-    { id: 'deudas_terceros', label: 'Deudas a Terceros' },
-    { id: 'deudas_cajas', label: 'Deudas entre Cajas' },
+    { id: 'transacciones', label: 'Transacciones', Icon: BarChart3 },
+    { id: 'cajas', label: 'Cajas (Saldos)', Icon: Wallet },
+    { id: 'empresas', label: 'Empresas', Icon: Building2 },
+    { id: 'proyectos', label: 'Proyectos', Icon: FolderOpen },
+    { id: 'terceros', label: 'Proveedores / Terceros', Icon: Users },
+    { id: 'deudas_terceros', label: 'Deudas a Terceros', Icon: FileText },
+    { id: 'deudas_cajas', label: 'Deudas entre Cajas', Icon: ArrowLeftRight },
 ];
 
 export default function TablaReport() {
@@ -45,21 +49,35 @@ export default function TablaReport() {
     const [cajasMap, setCajasMap] = useState({});
     const [proyectosMap, setProyectosMap] = useState({});
     const [tercerosMap, setTercerosMap] = useState({});
+    const [empresasMap, setEmpresasMap] = useState({});
+    const [categoriasMap, setCategoriasMap] = useState({});
 
     // Load lookup data
     useEffect(() => {
         async function loadLookups() {
-            const [cajas, proyectos, terceros] = await Promise.all([
+            const [cajas, proyectos, terceros, empresas, categorias] = await Promise.all([
                 db.cajas.toArray(),
                 db.proyectos.toArray(),
-                db.terceros.toArray()
+                db.terceros.toArray(),
+                db.empresas.toArray(),
+                db.categorias?.toArray().catch(() => []) || Promise.resolve([])
             ]);
             setCajasMap(Object.fromEntries(cajas.map(c => [c.id, c.nombre])));
             setProyectosMap(Object.fromEntries(proyectos.map(p => [p.id, p.nombre])));
             setTercerosMap(Object.fromEntries(terceros.map(t => [t.id, t.nombre])));
+            setEmpresasMap(Object.fromEntries(empresas.map(e => [e.id, e.nombre])));
+            setCategoriasMap(Object.fromEntries(categorias.map(c => [c.id, c.nombre])));
         }
         loadLookups();
     }, []);
+
+    // Resolve category name (could be UUID or plain text)
+    function getCategoryName(catId) {
+        if (!catId) return '';
+        if (categoriasMap[catId]) return categoriasMap[catId];
+        if (!catId.includes('-')) return catId;
+        return catId;
+    }
 
     // Load data based on selected source
     useEffect(() => {
@@ -69,10 +87,45 @@ export default function TablaReport() {
                 let data = [];
                 if (dataSource === 'transacciones') {
                     data = await db.transacciones.orderBy('created_at').reverse().toArray();
+                    data = data.map(t => ({
+                        ...t,
+                        _caja_origen: cajasMap[t.caja_origen_id] || '',
+                        _caja_destino: cajasMap[t.caja_destino_id] || '',
+                        _proyecto: proyectosMap[t.proyecto_id] || '',
+                        _tercero: tercerosMap[t.tercero_id] || '',
+                        _categoria: getCategoryName(t.categoria),
+                    }));
+                } else if (dataSource === 'cajas') {
+                    data = await db.cajas.toArray();
+                    data = data.map(c => ({
+                        ...c,
+                        _empresa: empresasMap[c.empresa_id] || '',
+                    }));
+                } else if (dataSource === 'empresas') {
+                    data = await db.empresas.toArray();
+                } else if (dataSource === 'proyectos') {
+                    data = await db.proyectos.toArray();
+                    data = data.map(p => ({
+                        ...p,
+                        _empresa: empresasMap[p.empresa_id] || '',
+                    }));
+                } else if (dataSource === 'terceros') {
+                    data = await db.terceros.toArray();
                 } else if (dataSource === 'deudas_terceros') {
                     data = await db.deudas_terceros.toArray();
+                    data = data.map(d => ({
+                        ...d,
+                        _tercero: tercerosMap[d.tercero_id] || '',
+                        _proyecto: proyectosMap[d.proyecto_id] || '',
+                        _empresa: empresasMap[d.empresa_id] || '',
+                    }));
                 } else if (dataSource === 'deudas_cajas') {
                     data = await db.deudas_cajas.toArray();
+                    data = data.map(d => ({
+                        ...d,
+                        _caja_deudora: cajasMap[d.caja_deudora_id] || '',
+                        _caja_acreedora: cajasMap[d.caja_acreedora_id] || '',
+                    }));
                 }
                 setRowData(data);
             } catch (e) {
@@ -82,7 +135,7 @@ export default function TablaReport() {
             setLoading(false);
         }
         loadData();
-    }, [dataSource]);
+    }, [dataSource, cajasMap, proyectosMap, tercerosMap, empresasMap, categoriasMap]);
 
     // Format money
     function formatMoney(value) {
@@ -95,6 +148,13 @@ export default function TablaReport() {
         }).format(value);
     }
 
+    // Format date
+    function formatDate(params) {
+        if (!params.value) return '';
+        const d = new Date(params.value);
+        return d.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    }
+
     // Column definitions per data source
     const columnDefs = useMemo(() => {
         if (dataSource === 'transacciones') {
@@ -104,11 +164,7 @@ export default function TablaReport() {
                     field: 'fecha',
                     width: 120,
                     filter: 'agDateColumnFilter',
-                    valueFormatter: (params) => {
-                        if (!params.value) return '';
-                        const d = new Date(params.value);
-                        return d.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                    },
+                    valueFormatter: formatDate,
                     sort: 'desc'
                 },
                 {
@@ -140,37 +196,33 @@ export default function TablaReport() {
                 },
                 {
                     headerName: 'Categoría',
-                    field: 'categoria',
+                    field: '_categoria',
                     width: 150,
                     filter: true
                 },
                 {
                     headerName: 'Proyecto',
-                    field: 'proyecto_id',
+                    field: '_proyecto',
                     width: 160,
                     filter: true,
-                    valueFormatter: (params) => proyectosMap[params.value] || ''
                 },
                 {
                     headerName: 'Caja Origen',
-                    field: 'caja_origen_id',
+                    field: '_caja_origen',
                     width: 150,
                     filter: true,
-                    valueFormatter: (params) => cajasMap[params.value] || ''
                 },
                 {
                     headerName: 'Caja Destino',
-                    field: 'caja_destino_id',
+                    field: '_caja_destino',
                     width: 150,
                     filter: true,
-                    valueFormatter: (params) => cajasMap[params.value] || ''
                 },
                 {
                     headerName: 'Proveedor',
-                    field: 'tercero_id',
+                    field: '_tercero',
                     width: 150,
                     filter: true,
-                    valueFormatter: (params) => tercerosMap[params.value] || ''
                 },
                 {
                     headerName: 'Usuario',
@@ -179,30 +231,80 @@ export default function TablaReport() {
                     filter: true
                 },
                 {
-                    headerName: 'Sincronizado',
+                    headerName: 'Sync',
                     field: 'sincronizado',
+                    width: 100,
+                    filter: true,
+                    valueFormatter: (params) => params.value ? 'Sí' : 'Pendiente'
+                }
+            ];
+        } else if (dataSource === 'cajas') {
+            return [
+                { headerName: 'Nombre', field: 'nombre', flex: 1, minWidth: 160, filter: 'agTextColumnFilter' },
+                { headerName: 'Tipo', field: 'tipo', width: 120, filter: true },
+                { headerName: 'Empresa', field: '_empresa', width: 180, filter: true },
+                {
+                    headerName: 'Saldo Actual',
+                    field: 'saldo_actual',
+                    width: 160,
+                    filter: 'agNumberColumnFilter',
+                    valueFormatter: (params) => formatMoney(params.value),
+                    cellStyle: (params) => ({
+                        textAlign: 'right',
+                        fontWeight: '600',
+                        color: (params.value || 0) >= 0 ? '#4ade80' : '#f87171'
+                    })
+                },
+                { headerName: 'Banco', field: 'banco_nombre', width: 150, filter: true },
+                { headerName: 'Nro. Cuenta', field: 'numero_cuenta', width: 150, filter: 'agTextColumnFilter' },
+                { headerName: 'Creado', field: 'created_at', width: 120, valueFormatter: formatDate },
+            ];
+        } else if (dataSource === 'empresas') {
+            return [
+                { headerName: 'Nombre', field: 'nombre', flex: 1, minWidth: 200, filter: 'agTextColumnFilter' },
+                { headerName: 'NIT', field: 'nit', width: 150, filter: 'agTextColumnFilter' },
+                { headerName: 'Dirección', field: 'direccion', width: 200, filter: 'agTextColumnFilter' },
+                { headerName: 'Teléfono', field: 'telefono', width: 150, filter: 'agTextColumnFilter' },
+                { headerName: 'Creado', field: 'created_at', width: 120, valueFormatter: formatDate },
+            ];
+        } else if (dataSource === 'proyectos') {
+            return [
+                { headerName: 'Nombre', field: 'nombre', flex: 1, minWidth: 200, filter: 'agTextColumnFilter' },
+                { headerName: 'Empresa', field: '_empresa', width: 180, filter: true },
+                {
+                    headerName: 'Presupuesto',
+                    field: 'presupuesto_estimado',
+                    width: 160,
+                    filter: 'agNumberColumnFilter',
+                    valueFormatter: (params) => formatMoney(params.value),
+                    cellStyle: { textAlign: 'right', fontWeight: '600' }
+                },
+                {
+                    headerName: 'Estado',
+                    field: 'estado',
                     width: 120,
                     filter: true,
-                    valueFormatter: (params) => params.value ? '✅ Sí' : '⏳ Pendiente'
-                }
+                    cellStyle: (params) => ({
+                        color: params.value === 'Activo' ? '#4ade80' : params.value === 'Finalizado' ? '#60a5fa' : '#fbbf24'
+                    })
+                },
+                { headerName: 'Inicio', field: 'fecha_inicio', width: 120, valueFormatter: formatDate },
+                { headerName: 'Fin', field: 'fecha_fin', width: 120, valueFormatter: formatDate },
+                { headerName: 'Descripción', field: 'descripcion', width: 200, filter: 'agTextColumnFilter' },
+            ];
+        } else if (dataSource === 'terceros') {
+            return [
+                { headerName: 'Nombre', field: 'nombre', flex: 1, minWidth: 200, filter: 'agTextColumnFilter' },
+                { headerName: 'Tipo', field: 'tipo', width: 130, filter: true },
+                { headerName: 'NIT / Cédula', field: 'nit_cedula', width: 150, filter: 'agTextColumnFilter' },
+                { headerName: 'Teléfono', field: 'telefono', width: 140, filter: 'agTextColumnFilter' },
+                { headerName: 'Email', field: 'email', width: 180, filter: 'agTextColumnFilter' },
+                { headerName: 'Dirección', field: 'direccion', width: 200, filter: 'agTextColumnFilter' },
             ];
         } else if (dataSource === 'deudas_terceros') {
             return [
-                {
-                    headerName: 'Tercero',
-                    field: 'tercero_id',
-                    flex: 1,
-                    minWidth: 160,
-                    filter: true,
-                    valueFormatter: (params) => tercerosMap[params.value] || params.value || ''
-                },
-                {
-                    headerName: 'Descripción',
-                    field: 'descripcion',
-                    flex: 1,
-                    minWidth: 180,
-                    filter: 'agTextColumnFilter'
-                },
+                { headerName: 'Tercero', field: '_tercero', flex: 1, minWidth: 160, filter: true },
+                { headerName: 'Descripción', field: 'descripcion', flex: 1, minWidth: 180, filter: 'agTextColumnFilter' },
                 {
                     headerName: 'Monto Original',
                     field: 'monto_original',
@@ -232,43 +334,20 @@ export default function TablaReport() {
                         color: params.value === 'pagada' ? '#4ade80' : '#fbbf24'
                     })
                 },
-                {
-                    headerName: 'Proyecto',
-                    field: 'proyecto_id',
-                    width: 160,
-                    filter: true,
-                    valueFormatter: (params) => proyectosMap[params.value] || ''
-                },
+                { headerName: 'Proyecto', field: '_proyecto', width: 160, filter: true },
+                { headerName: 'Empresa', field: '_empresa', width: 160, filter: true },
                 {
                     headerName: 'Fecha',
                     field: 'fecha_deuda',
                     width: 120,
-                    filter: 'agDateColumnFilter',
-                    valueFormatter: (params) => {
-                        if (!params.value) return '';
-                        return new Date(params.value).toLocaleDateString('es-CO');
-                    },
+                    valueFormatter: formatDate,
                     sort: 'desc'
                 }
             ];
         } else if (dataSource === 'deudas_cajas') {
             return [
-                {
-                    headerName: 'Caja Deudora',
-                    field: 'caja_deudora_id',
-                    flex: 1,
-                    minWidth: 160,
-                    filter: true,
-                    valueFormatter: (params) => cajasMap[params.value] || params.value || ''
-                },
-                {
-                    headerName: 'Caja Acreedora',
-                    field: 'caja_acreedora_id',
-                    flex: 1,
-                    minWidth: 160,
-                    filter: true,
-                    valueFormatter: (params) => cajasMap[params.value] || params.value || ''
-                },
+                { headerName: 'Caja Deudora', field: '_caja_deudora', flex: 1, minWidth: 160, filter: true },
+                { headerName: 'Caja Acreedora', field: '_caja_acreedora', flex: 1, minWidth: 160, filter: true },
                 {
                     headerName: 'Monto Original',
                     field: 'monto_original',
@@ -302,17 +381,13 @@ export default function TablaReport() {
                     headerName: 'Fecha Préstamo',
                     field: 'fecha_prestamo',
                     width: 140,
-                    filter: 'agDateColumnFilter',
-                    valueFormatter: (params) => {
-                        if (!params.value) return '';
-                        return new Date(params.value).toLocaleDateString('es-CO');
-                    },
+                    valueFormatter: formatDate,
                     sort: 'desc'
                 }
             ];
         }
         return [];
-    }, [dataSource, cajasMap, proyectosMap, tercerosMap]);
+    }, [dataSource, cajasMap, proyectosMap, tercerosMap, empresasMap, categoriasMap]);
 
     // Default column definitions
     const defaultColDef = useMemo(() => ({
@@ -327,20 +402,15 @@ export default function TablaReport() {
         const api = gridRef.current?.api;
         if (!api) return;
 
-        // Get visible columns and displayed rows (respecting filters)
         const columns = api.getAllDisplayedColumns();
         const rows = [];
-
-        // Header row
         const header = columns.map(col => api.getDisplayNameForColumn(col));
         rows.push(header);
 
-        // Data rows
         api.forEachNodeAfterFilterAndSort((node) => {
             const row = columns.map(col => {
                 const colDef = col.getColDef();
                 const value = api.getValue(col, node);
-                // Use formatted value for display
                 if (colDef.valueFormatter) {
                     return colDef.valueFormatter({ value, data: node.data, node });
                 }
@@ -350,8 +420,6 @@ export default function TablaReport() {
         });
 
         const ws = XLSX.utils.aoa_to_sheet(rows);
-
-        // Auto-size columns
         const colWidths = header.map((h, i) => {
             let maxLen = h.length;
             rows.forEach(r => {
@@ -364,7 +432,7 @@ export default function TablaReport() {
 
         const wb = XLSX.utils.book_new();
         const sourceName = DATA_SOURCES.find(s => s.id === dataSource)?.label || 'Datos';
-        XLSX.utils.book_append_sheet(wb, ws, sourceName);
+        XLSX.utils.book_append_sheet(wb, ws, sourceName.substring(0, 31));
         XLSX.writeFile(wb, `${sourceName}_${new Date().toISOString().split('T')[0]}.xlsx`);
     }, [dataSource]);
 
@@ -385,9 +453,10 @@ export default function TablaReport() {
     }, [dataSource]);
 
     const currentSource = DATA_SOURCES.find(s => s.id === dataSource);
+    const CurrentIcon = currentSource?.Icon || Table2;
 
     return (
-        <div className="h-full flex flex-col">
+        <div>
             {/* Toolbar */}
             <div className="flex flex-wrap items-center gap-3 mb-4">
                 {/* Data source selector */}
@@ -398,6 +467,7 @@ export default function TablaReport() {
                         style={{ border: '1px solid rgba(255,255,255,0.1)' }}
                     >
                         <Table2 size={16} className="text-gold" />
+                        <CurrentIcon size={14} className="text-gray-400" />
                         {currentSource?.label}
                         <ChevronDown size={14} className="text-gray-400" />
                     </button>
@@ -405,19 +475,23 @@ export default function TablaReport() {
                         <>
                             <div className="fixed inset-0 z-10" onClick={() => setShowSourceDropdown(false)} />
                             <div className="absolute top-full left-0 mt-1 z-20 bg-secondary rounded-xl shadow-2xl overflow-hidden"
-                                style={{ border: '1px solid rgba(255,255,255,0.1)', minWidth: '200px' }}>
-                                {DATA_SOURCES.map(src => (
-                                    <button
-                                        key={src.id}
-                                        onClick={() => { setDataSource(src.id); setShowSourceDropdown(false); }}
-                                        className={`w-full text-left px-4 py-3 text-sm transition-colors ${src.id === dataSource
+                                style={{ border: '1px solid rgba(255,255,255,0.1)', minWidth: '240px' }}>
+                                {DATA_SOURCES.map(src => {
+                                    const SrcIcon = src.Icon;
+                                    return (
+                                        <button
+                                            key={src.id}
+                                            onClick={() => { setDataSource(src.id); setShowSourceDropdown(false); }}
+                                            className={`w-full text-left px-4 py-3 text-sm transition-colors flex items-center gap-3 ${src.id === dataSource
                                                 ? 'text-gold bg-gold/10 font-medium'
                                                 : 'text-gray-300 hover:bg-white/5'
-                                            }`}
-                                    >
-                                        {src.label}
-                                    </button>
-                                ))}
+                                                }`}
+                                        >
+                                            <SrcIcon size={16} />
+                                            {src.label}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </>
                     )}
@@ -458,8 +532,14 @@ export default function TablaReport() {
                 </button>
             </div>
 
-            {/* AG-Grid Table */}
-            <div className="flex-1 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)', minHeight: '400px' }}>
+            {/* Tip bar */}
+            <div className="text-xs text-gray-500 mb-2 flex items-center gap-2">
+                <Filter size={12} />
+                Usa los filtros en cada columna para buscar. Combina filtros de fechas, montos, categorías, proyectos y cajas.
+            </div>
+
+            {/* AG-Grid Table - using autoHeight so it sizes based on rows */}
+            <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)' }}>
                 <AgGridReact
                     ref={gridRef}
                     theme={darkTheme}
@@ -468,13 +548,14 @@ export default function TablaReport() {
                     defaultColDef={defaultColDef}
                     animateRows={true}
                     pagination={true}
-                    paginationPageSize={50}
+                    paginationPageSize={25}
                     paginationPageSizeSelector={[25, 50, 100, 500]}
                     suppressCellFocus={true}
                     enableCellTextSelection={true}
                     loading={loading}
-                    overlayNoRowsTemplate='<span class="text-gray-400">No hay datos para mostrar</span>'
-                    overlayLoadingTemplate='<span class="text-gold">Cargando datos...</span>'
+                    domLayout='autoHeight'
+                    overlayNoRowsTemplate='<span style="color: #9ca3af; font-size: 14px;">No hay datos para mostrar</span>'
+                    overlayLoadingTemplate='<span style="color: #f5a623; font-size: 14px;">Cargando datos...</span>'
                 />
             </div>
         </div>

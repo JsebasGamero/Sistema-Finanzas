@@ -216,6 +216,13 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
 
         try {
             await db.deudas_terceros.add(newDeuda);
+
+            // Sync to Supabase
+            await addToSyncQueue('deudas_terceros', 'INSERT', newDeuda);
+            if (navigator.onLine) {
+                try { await processSyncQueue(); } catch (err) { console.log('Sync error:', err); }
+            }
+
             setDeudas([...deudas, newDeuda]);
             setFormData({
                 terceroId: '',
@@ -280,6 +287,12 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
                 estado: newEstado,
                 pagos
             });
+
+            // 1b. Sync the debt update to Supabase
+            const updatedDeuda = await db.deudas_terceros.get(deudaId);
+            if (updatedDeuda) {
+                await addToSyncQueue('deudas_terceros', 'UPDATE', updatedDeuda);
+            }
 
             // 2. Create EGRESO transaction (deduct from caja)
             const transaccion = {
@@ -357,10 +370,18 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
 
         try {
             await db.deudas_terceros.delete(deudaId);
+
+            // Sync deletion to Supabase
+            await addToSyncQueue('deudas_terceros', 'DELETE', { id: deudaId });
+            if (navigator.onLine) {
+                try { await processSyncQueue(); } catch (err) { console.log('Sync error:', err); }
+            }
+
             setDeudas(deudas.filter(d => d.id !== deudaId));
             onDebtChanged?.();
         } catch (error) {
             console.error('Error deleting debt:', error);
+            alert('Error al eliminar la deuda');
         }
     }
 

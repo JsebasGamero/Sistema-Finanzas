@@ -132,14 +132,75 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
             created_at: new Date().toISOString()
         };
 
+        // Check if lending caja has enough balance
+        const cajaAcreedora = cajas.find(c => c.id === formData.cajaAcreedoraId);
+        if (cajaAcreedora && cajaAcreedora.saldo_actual < monto) {
+            const confirmar = confirm(
+                `La caja "${cajaAcreedora.nombre}" solo tiene ${formatMoney(cajaAcreedora.saldo_actual)}. ` +
+                `¿Deseas continuar con el préstamo de ${formatMoney(monto)}? El saldo quedará negativo.`
+            );
+            if (!confirmar) return;
+        }
+
         try {
+            // 1. Save the debt record
             await db.deudas_cajas.add(newDeuda);
+            await addToSyncQueue('deudas_cajas', 'INSERT', newDeuda);
+
+            // 2. Create TRANSFERENCIA transaction (from lender to borrower)
+            const transaccion = {
+                id: generateUUID(),
+                fecha: new Date().toISOString().split('T')[0],
+                descripcion: newDeuda.descripcion || `Préstamo: ${getCajaName(formData.cajaAcreedoraId)} → ${getCajaName(formData.cajaDeudoraId)}`,
+                monto: monto,
+                tipo_movimiento: 'TRANSFERENCIA',
+                categoria: 'Préstamo entre Cajas',
+                proyecto_id: null,
+                caja_origen_id: formData.cajaAcreedoraId,  // Money leaves the lender
+                caja_destino_id: formData.cajaDeudoraId,   // Money goes to the borrower
+                tercero_id: null,
+                sincronizado: false,
+                usuario_nombre: currentUser?.nombre || 'Desconocido',
+                created_at: new Date().toISOString()
+            };
+            await db.transacciones.add(transaccion);
+            await addToSyncQueue('transacciones', 'INSERT', transaccion);
+
+            // 3. Update lender caja balance (deduct)
+            const cajaOrigen = await db.cajas.get(formData.cajaAcreedoraId);
+            if (cajaOrigen) {
+                const nuevoSaldoOrigen = (cajaOrigen.saldo_actual || 0) - monto;
+                await db.cajas.update(formData.cajaAcreedoraId, { saldo_actual: nuevoSaldoOrigen });
+                await addToSyncQueue('cajas', 'UPDATE', { ...cajaOrigen, saldo_actual: nuevoSaldoOrigen });
+            }
+
+            // 4. Update borrower caja balance (add)
+            const cajaDestino = await db.cajas.get(formData.cajaDeudoraId);
+            if (cajaDestino) {
+                const nuevoSaldoDestino = (cajaDestino.saldo_actual || 0) + monto;
+                await db.cajas.update(formData.cajaDeudoraId, { saldo_actual: nuevoSaldoDestino });
+                await addToSyncQueue('cajas', 'UPDATE', { ...cajaDestino, saldo_actual: nuevoSaldoDestino });
+            }
+
+            // 5. Sync all changes immediately if online
+            if (navigator.onLine) {
+                try {
+                    await processSyncQueue();
+                    await db.transacciones.update(transaccion.id, { sincronizado: true });
+                } catch (err) { console.log('Sync error:', err); }
+            }
+
+            // 6. Reload cajas to update local state
+            const cajasActualizadas = await db.cajas.toArray();
+            setCajas(cajasActualizadas);
+
             setDeudas([...deudas, newDeuda]);
             setFormData({ cajaDeudoraId: '', cajaAcreedoraId: '', monto: '', descripcion: '' });
             setShowForm(false);
             onDebtChanged?.();
         } catch (error) {
             console.error('Error creating debt:', error);
+            alert('Error al crear la deuda');
         }
     }
 
@@ -183,6 +244,12 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
                 estado: newEstado,
                 pagos
             });
+
+            // 1b. Sync the debt update to Supabase
+            const updatedDeuda = await db.deudas_cajas.get(deudaId);
+            if (updatedDeuda) {
+                await addToSyncQueue('deudas_cajas', 'UPDATE', updatedDeuda);
+            }
 
             // 2. Create TRANSFERENCIA transaction (from debtor to creditor)
             const transaccion = {
@@ -269,10 +336,18 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
 
         try {
             await db.deudas_cajas.delete(deudaId);
+
+            // Sync deletion to Supabase
+            await addToSyncQueue('deudas_cajas', 'DELETE', { id: deudaId });
+            if (navigator.onLine) {
+                try { await processSyncQueue(); } catch (err) { console.log('Sync error:', err); }
+            }
+
             setDeudas(deudas.filter(d => d.id !== deudaId));
             onDebtChanged?.();
         } catch (error) {
             console.error('Error deleting debt:', error);
+            alert('Error al eliminar la deuda');
         }
     }
 

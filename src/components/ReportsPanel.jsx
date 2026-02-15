@@ -23,6 +23,8 @@ import {
     FileText,
     CreditCard,
     History,
+    Tag,
+    User,
     Image as ImageIcon
 } from 'lucide-react';
 import { db } from '../services/db';
@@ -273,15 +275,18 @@ export default function ReportsPanel() {
                         id: t.proyecto_id,
                         total: 0,
                         count: 0,
-                        byCategory: {}
+                        byCategory: {},
+                        transactions: []
                     };
                 }
                 expenses[t.proyecto_id].total += t.monto;
                 expenses[t.proyecto_id].count++;
+                expenses[t.proyecto_id].transactions.push(t);
 
-                const cat = t.categoria || 'Sin categoría';
-                expenses[t.proyecto_id].byCategory[cat] =
-                    (expenses[t.proyecto_id].byCategory[cat] || 0) + t.monto;
+                // Resolve category name (could be UUID or plain text)
+                const catName = getCategoryName(t.categoria);
+                expenses[t.proyecto_id].byCategory[catName] =
+                    (expenses[t.proyecto_id].byCategory[catName] || 0) + t.monto;
             });
 
         return Object.values(expenses)
@@ -291,7 +296,7 @@ export default function ReportsPanel() {
             }))
             .filter(e => e.proyecto)
             .sort((a, b) => b.total - a.total);
-    }, [transacciones, proyectos]);
+    }, [transacciones, proyectos, categorias]);
 
     // Calculate summary stats
     const summaryStats = useMemo(() => {
@@ -639,6 +644,10 @@ export default function ReportsPanel() {
                     deudasTerceros={deudasTerceros}
                     terceros={terceros}
                     formatMoney={formatMoney}
+                    formatDate={formatDate}
+                    getCategoryName={getCategoryName}
+                    getCajaName={getCajaName}
+                    getProyectoName={getProyectoName}
                 />
             )}
 
@@ -655,6 +664,10 @@ export default function ReportsPanel() {
                 <ProyectosReport
                     projectExpenses={projectExpenses}
                     formatMoney={formatMoney}
+                    formatDate={formatDate}
+                    getCajaName={getCajaName}
+                    getTerceroName={getTerceroName}
+                    getCategoryName={getCategoryName}
                 />
             )}
 
@@ -870,7 +883,8 @@ function MovimientosReport({ transactions, getCajaName, getTerceroName, getProye
 }
 
 // Proveedores Report Component - Merged with debts data
-function ProveedoresReport({ providerBalances, deudasTerceros, terceros, formatMoney }) {
+// Proveedores Report Component - Merged with debts data
+function ProveedoresReport({ providerBalances, deudasTerceros, terceros, formatMoney, formatDate, getCategoryName, getCajaName, getProyectoName }) {
     const [expandedId, setExpandedId] = useState(null);
 
     // Merge payment data with debt data per provider
@@ -1035,15 +1049,24 @@ function ProveedoresReport({ providerBalances, deudasTerceros, terceros, formatM
                                         </div>
                                     )}
 
-                                    {/* Recent Direct Payments */}
+                                    {/* Full Transaction List */}
                                     {item.transactions.length > 0 && (
                                         <div>
-                                            <p className="text-xs text-gray-500 mb-2">Últimos pagos directos:</p>
-                                            <div className="space-y-1">
-                                                {item.transactions.slice(0, 5).map((t, idx) => (
-                                                    <div key={idx} className="flex justify-between text-sm">
-                                                        <span className="text-gray-400">{getCategoryName(t.categoria) || t.descripcion || 'Pago'}</span>
-                                                        <span className="text-green-400">{formatMoney(t.monto)}</span>
+                                            <p className="text-xs text-gray-500 mb-2">Detalle de movimientos ({item.transactions.length}):</p>
+                                            <div className="space-y-2 max-h-80 overflow-y-auto">
+                                                {item.transactions.map((t, idx) => (
+                                                    <div key={idx} className="bg-secondary/30 rounded-lg p-3 text-sm">
+                                                        <div className="flex justify-between items-start mb-1">
+                                                            <span className="text-white font-medium">{t.descripcion || 'Sin descripción'}</span>
+                                                            <span className="text-red-400 font-bold whitespace-nowrap ml-2">{formatMoney(t.monto)}</span>
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400">
+                                                            <span className="flex items-center gap-1"><Calendar size={11} /> {formatDate(t.fecha)}</span>
+                                                            {t.categoria && <span className="flex items-center gap-1"><Tag size={11} /> {getCategoryName(t.categoria)}</span>}
+                                                            {t.caja_origen_id && <span className="flex items-center gap-1"><Wallet size={11} /> {getCajaName(t.caja_origen_id)}</span>}
+                                                            {t.proyecto_id && <span className="flex items-center gap-1"><FolderOpen size={11} /> {getProyectoName(t.proyecto_id)}</span>}
+                                                            {t.usuario_nombre && <span className="flex items-center gap-1"><User size={11} /> {t.usuario_nombre}</span>}
+                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>
@@ -1064,6 +1087,7 @@ function ProveedoresReport({ providerBalances, deudasTerceros, terceros, formatM
         </div>
     );
 }
+
 
 // Cajas Report Component
 function CajasReport({ cajas, empresas, formatMoney, getEmpresaName }) {
@@ -1136,7 +1160,7 @@ function CajasReport({ cajas, empresas, formatMoney, getEmpresaName }) {
 }
 
 // Proyectos Report Component
-function ProyectosReport({ projectExpenses, formatMoney }) {
+function ProyectosReport({ projectExpenses, formatMoney, formatDate, getCajaName, getTerceroName, getCategoryName }) {
     const [expandedId, setExpandedId] = useState(null);
 
     return (
@@ -1181,18 +1205,45 @@ function ProyectosReport({ projectExpenses, formatMoney }) {
                             </button>
 
                             {expandedId === item.id && (
-                                <div className="mt-4 pt-4 border-t border-white/10">
-                                    <p className="text-xs text-gray-500 mb-2">Por categoría:</p>
-                                    <div className="space-y-1">
-                                        {Object.entries(item.byCategory)
-                                            .sort((a, b) => b[1] - a[1])
-                                            .map(([cat, amount], idx) => (
-                                                <div key={idx} className="flex justify-between text-sm">
-                                                    <span className="text-gray-400">{cat}</span>
-                                                    <span className="text-red-400">{formatMoney(amount)}</span>
-                                                </div>
-                                            ))}
+                                <div className="mt-4 pt-4 border-t border-white/10 space-y-4">
+                                    {/* Category Breakdown */}
+                                    <div>
+                                        <p className="text-xs text-gray-500 mb-2">Por categoría:</p>
+                                        <div className="space-y-1">
+                                            {Object.entries(item.byCategory)
+                                                .sort((a, b) => b[1] - a[1])
+                                                .map(([cat, amount], idx) => (
+                                                    <div key={idx} className="flex justify-between text-sm">
+                                                        <span className="text-gray-400">{cat}</span>
+                                                        <span className="text-red-400">{formatMoney(amount)}</span>
+                                                    </div>
+                                                ))}
+                                        </div>
                                     </div>
+
+                                    {/* Full Transaction List */}
+                                    {item.transactions && item.transactions.length > 0 && (
+                                        <div>
+                                            <p className="text-xs text-gray-500 mb-2">Detalle de movimientos ({item.transactions.length}):</p>
+                                            <div className="space-y-2 max-h-80 overflow-y-auto">
+                                                {item.transactions.map((t, idx) => (
+                                                    <div key={idx} className="bg-secondary/30 rounded-lg p-3 text-sm">
+                                                        <div className="flex justify-between items-start mb-1">
+                                                            <span className="text-white font-medium">{t.descripcion || 'Sin descripción'}</span>
+                                                            <span className="text-red-400 font-bold whitespace-nowrap ml-2">{formatMoney(t.monto)}</span>
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400">
+                                                            <span className="flex items-center gap-1"><Calendar size={11} /> {formatDate(t.fecha)}</span>
+                                                            {t.categoria && <span className="flex items-center gap-1"><Tag size={11} /> {getCategoryName(t.categoria)}</span>}
+                                                            {t.caja_origen_id && <span className="flex items-center gap-1"><Wallet size={11} /> {getCajaName(t.caja_origen_id)}</span>}
+                                                            {t.tercero_id && <span className="flex items-center gap-1"><Users size={11} /> {getTerceroName(t.tercero_id)}</span>}
+                                                            {t.usuario_nombre && <span className="flex items-center gap-1"><User size={11} /> {t.usuario_nombre}</span>}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
