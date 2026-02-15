@@ -35,8 +35,6 @@
    RESET & BASE
    ============================================ */
 * {
-  margin: 0;
-  padding: 0;
   box-sizing: border-box;
 }
 
@@ -46,6 +44,7 @@ html {
 }
 
 body {
+  margin: 0;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
@@ -110,6 +109,7 @@ body {
   transition: transform var(--transition-smooth),
     box-shadow var(--transition-smooth),
     border-color var(--transition-smooth);
+  margin-top: 20px;
 }
 
 @media (min-width: 768px) {

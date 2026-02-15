@@ -243,8 +243,8 @@ export default function ProjectDashboard() {
                 style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${t.tipo_movimiento === 'INGRESO' ? 'bg-green-500/10 text-green-400' :
-                            t.tipo_movimiento === 'EGRESO' ? 'bg-red-500/10 text-red-400' :
-                                'bg-blue-500/10 text-blue-400'
+                        t.tipo_movimiento === 'EGRESO' ? 'bg-red-500/10 text-red-400' :
+                            'bg-blue-500/10 text-blue-400'
                         }`}>
                         {t.tipo_movimiento === 'INGRESO' ? <TrendingUp size={16} /> :
                             t.tipo_movimiento === 'EGRESO' ? <TrendingDown size={16} /> :
@@ -356,7 +356,7 @@ export default function ProjectDashboard() {
     }
 
     return (
-        <div className="space-y-6 animate-fade-in">
+        <div className="space-y-8 animate-fade-in">
             <h2 className="section-title">
                 <LayoutDashboard size={22} className="text-gold" />
                 Dashboard

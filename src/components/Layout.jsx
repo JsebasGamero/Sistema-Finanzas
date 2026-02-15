@@ -54,7 +54,7 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                 </div>
 
                 {/* Sidebar Navigation */}
-                <nav className="flex-1 px-3 py-4 space-y-0.5">
+                <nav className="flex-1 px-3 py-4 space-y-1.5">
                     {tabs.map((tab) => {
                         const Icon = tab.icon;
                         const isActive = activeTab === tab.id;
@@ -62,7 +62,7 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                             <button
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id)}
-                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-[14.5px]
+                                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition-all text-[14.5px]
                                     ${isActive
                                         ? 'text-gold font-semibold'
                                         : 'text-gray-400 hover:text-white hover:bg-white/[0.04]'
