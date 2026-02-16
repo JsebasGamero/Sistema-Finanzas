@@ -263,12 +263,97 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                     </div>
                 </header>
 
-                {/* Mobile menu overlay */}
+                {/* Mobile slide-out menu */}
                 {menuOpen && (
-                    <div
-                        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
-                        onClick={() => setMenuOpen(false)}
-                    />
+                    <>
+                        <div
+                            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+                            onClick={() => setMenuOpen(false)}
+                        />
+                        <div className="fixed top-0 left-0 bottom-0 w-[280px] bg-secondary z-50 lg:hidden flex flex-col shadow-2xl"
+                            style={{ borderRight: '1px solid rgba(255,255,255,0.08)' }}>
+                            {/* Menu Header */}
+                            <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                                <h1 className="text-lg font-bold text-gold flex items-center gap-2">
+                                    <Coins size={20} />
+                                    FinanzasObra
+                                </h1>
+                                <button onClick={() => setMenuOpen(false)} className="text-gray-400 hover:text-white p-1">
+                                    <X size={20} />
+                                </button>
+                            </div>
+
+                            {/* Menu Navigation */}
+                            <nav className="flex-1 px-3 py-4 space-y-1.5 overflow-y-auto">
+                                {tabs.map((tab) => {
+                                    const Icon = tab.icon;
+                                    const isActive = activeTab === tab.id;
+                                    return (
+                                        <button
+                                            key={tab.id}
+                                            onClick={() => { setActiveTab(tab.id); setMenuOpen(false); }}
+                                            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl transition-all text-[14.5px]
+                                                ${isActive
+                                                    ? 'text-gold font-semibold'
+                                                    : 'text-gray-400 hover:text-white hover:bg-white/[0.04]'
+                                                }`}
+                                            style={isActive ? {
+                                                background: 'linear-gradient(135deg, rgba(245,166,35,0.1) 0%, rgba(245,166,35,0.04) 100%)',
+                                                borderLeft: '3px solid var(--accent-gold)'
+                                            } : { borderLeft: '3px solid transparent' }}
+                                        >
+                                            <Icon size={20} strokeWidth={isActive ? 2.2 : 1.8} />
+                                            <span>{tab.label}</span>
+                                        </button>
+                                    );
+                                })}
+                            </nav>
+
+                            {/* Menu Footer */}
+                            <div className="px-4 py-4 space-y-3" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                                        {userInitials}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-semibold text-white truncate">{currentUser?.nombre}</p>
+                                        <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{currentUser?.email}</p>
+                                    </div>
+                                </div>
+
+                                <div className={`sync-indicator ${isOnline ? 'online' : 'offline'} justify-center`}>
+                                    {isOnline ? <Wifi size={14} /> : <WifiOff size={14} className="pulse" />}
+                                    <span>{isOnline ? 'Conectado' : 'Sin conexión'}</span>
+                                </div>
+
+                                {pendingSync > 0 && (
+                                    <button
+                                        onClick={() => { onSync(); setMenuOpen(false); }}
+                                        className="w-full flex items-center justify-center gap-2 bg-amber-500/15 text-amber-400 px-3 py-2.5 rounded-xl text-sm font-medium hover:bg-amber-500/25 transition-colors"
+                                    >
+                                        <RefreshCw size={15} />
+                                        Sincronizar ({pendingSync})
+                                    </button>
+                                )}
+
+                                <button
+                                    onClick={() => { openPasswordModal(); setMenuOpen(false); }}
+                                    className="w-full flex items-center justify-center gap-2 text-gray-400 hover:text-gold px-3 py-2.5 rounded-xl text-sm hover:bg-gold/8 transition-colors"
+                                >
+                                    <KeyRound size={15} />
+                                    Cambiar contraseña
+                                </button>
+
+                                <button
+                                    onClick={() => { onLogout(); setMenuOpen(false); }}
+                                    className="w-full flex items-center justify-center gap-2 text-gray-500 hover:text-red-400 px-3 py-2.5 rounded-xl text-sm hover:bg-red-500/8 transition-colors"
+                                >
+                                    <LogOut size={15} />
+                                    Cerrar sesión
+                                </button>
+                            </div>
+                        </div>
+                    </>
                 )}
 
                 {/* Content area – Scrollable */}
