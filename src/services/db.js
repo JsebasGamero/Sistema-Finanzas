@@ -87,6 +87,10 @@ export function generateUUID() {
 }
 
 // Fetch data from Supabase and sync to local DB
+// Strategy: Supabase is the SOURCE OF TRUTH
+// 1. Clear local tables
+// 2. Replace with fresh Supabase data
+// This prevents duplicates when switching devices/accounts
 export async function syncFromSupabase() {
     if (!isSupabaseConfigured()) {
         console.log('⚠️ Supabase not configured, using local data only');
@@ -96,27 +100,32 @@ export async function syncFromSupabase() {
     try {
         console.log('🔄 Syncing data from Supabase...');
 
-        // Fetch empresas
+        // Fetch all tables from Supabase
         const { data: empresas, error: empresasError } = await supabase.from('empresas').select('*');
         if (empresasError) throw empresasError;
 
-        // Fetch cajas
         const { data: cajas, error: cajasError } = await supabase.from('cajas').select('*');
         if (cajasError) throw cajasError;
 
-        // Fetch proyectos
         const { data: proyectos, error: proyectosError } = await supabase.from('proyectos').select('*');
         if (proyectosError) throw proyectosError;
 
-        // Fetch terceros
         const { data: terceros, error: tercerosError } = await supabase.from('terceros').select('*');
         if (tercerosError) throw tercerosError;
 
-        // Fetch transacciones (existing transactions from cloud)
         const { data: transacciones, error: transaccionesError } = await supabase.from('transacciones').select('*');
         if (transaccionesError) throw transaccionesError;
 
-        // Fetch deudas_cajas (inter-box debts)
+        // Fetch categorias
+        let categorias = [];
+        try {
+            const { data, error } = await supabase.from('categorias').select('*');
+            if (!error) categorias = data || [];
+        } catch (e) {
+            console.log('⚠️ categorias table might not exist in Supabase yet');
+        }
+
+        // Fetch deudas_cajas
         let deudasCajas = [];
         try {
             const { data, error } = await supabase.from('deudas_cajas').select('*');
@@ -125,7 +134,7 @@ export async function syncFromSupabase() {
             console.log('⚠️ deudas_cajas table might not exist in Supabase yet');
         }
 
-        // Fetch deudas_terceros (supplier debts)
+        // Fetch deudas_terceros
         let deudasTerceros = [];
         try {
             const { data, error } = await supabase.from('deudas_terceros').select('*');
@@ -134,47 +143,71 @@ export async function syncFromSupabase() {
             console.log('⚠️ deudas_terceros table might not exist in Supabase yet');
         }
 
-        // Update local DB with Supabase data (using bulkPut to merge/update without deleting local-only data)
-        // We do NOT clear tables because that would wipe unsynced local data!
+        // CLEAR local tables and REPLACE with Supabase data
+        // This prevents duplicates from merging different device data
+        console.log('🗑️ Clearing local data for fresh sync...');
 
+        await db.empresas.clear();
         if (empresas && empresas.length > 0) {
-            await db.empresas.bulkPut(empresas);
+            await db.empresas.bulkAdd(empresas);
             console.log(`✅ Synced ${empresas.length} empresas`);
         }
 
+        await db.cajas.clear();
         if (cajas && cajas.length > 0) {
-            await db.cajas.bulkPut(cajas);
+            await db.cajas.bulkAdd(cajas);
             console.log(`✅ Synced ${cajas.length} cajas`);
         }
 
+        await db.proyectos.clear();
         if (proyectos && proyectos.length > 0) {
-            await db.proyectos.bulkPut(proyectos);
+            await db.proyectos.bulkAdd(proyectos);
             console.log(`✅ Synced ${proyectos.length} proyectos`);
         }
 
+        await db.terceros.clear();
         if (terceros && terceros.length > 0) {
-            await db.terceros.bulkPut(terceros);
+            await db.terceros.bulkAdd(terceros);
             console.log(`✅ Synced ${terceros.length} terceros`);
         }
 
+        await db.transacciones.clear();
         if (transacciones && transacciones.length > 0) {
-            await db.transacciones.bulkPut(transacciones);
+            await db.transacciones.bulkAdd(transacciones);
             console.log(`✅ Synced ${transacciones.length} transacciones`);
+        }
 
-            // NOTE: We trust the saldo_actual from Supabase.
-            // Don't recalculate balances from transactions as it would lose initial balances set by user.
+        // Sync categorias
+        try {
+            await db.categorias.clear();
+            if (categorias.length > 0) {
+                await db.categorias.bulkAdd(categorias);
+                console.log(`✅ Synced ${categorias.length} categorias`);
+            }
+        } catch (e) {
+            console.log('⚠️ categorias table might not exist locally yet');
         }
 
         // Sync deudas_cajas
-        if (deudasCajas.length > 0) {
-            await db.deudas_cajas.bulkPut(deudasCajas);
-            console.log(`✅ Synced ${deudasCajas.length} deudas_cajas`);
+        try {
+            await db.deudas_cajas.clear();
+            if (deudasCajas.length > 0) {
+                await db.deudas_cajas.bulkAdd(deudasCajas);
+                console.log(`✅ Synced ${deudasCajas.length} deudas_cajas`);
+            }
+        } catch (e) {
+            console.log('⚠️ deudas_cajas table might not exist locally yet');
         }
 
         // Sync deudas_terceros
-        if (deudasTerceros.length > 0) {
-            await db.deudas_terceros.bulkPut(deudasTerceros);
-            console.log(`✅ Synced ${deudasTerceros.length} deudas_terceros`);
+        try {
+            await db.deudas_terceros.clear();
+            if (deudasTerceros.length > 0) {
+                await db.deudas_terceros.bulkAdd(deudasTerceros);
+                console.log(`✅ Synced ${deudasTerceros.length} deudas_terceros`);
+            }
+        } catch (e) {
+            console.log('⚠️ deudas_terceros table might not exist locally yet');
         }
 
         console.log('✅ Data sync from Supabase complete!');
@@ -226,53 +259,18 @@ async function recalculateCajaBalances() {
     console.log('✅ Caja balances recalculated!');
 }
 
-// Initialize data - fetch from Supabase or use local fallback
+// Initialize data - fetch from Supabase (source of truth)
 export async function seedInitialData() {
-    const empresasCount = await db.empresas.count();
-
-    // Try to sync from Supabase first
+    // Try to sync from Supabase first (this is the source of truth)
     if (navigator.onLine && isSupabaseConfigured()) {
         const synced = await syncFromSupabase();
         if (synced) return;
     }
 
-    // If no data and couldn't sync, create local fallback data
+    // If offline and local DB is empty, show message
+    const empresasCount = await db.empresas.count();
     if (empresasCount === 0) {
-        console.log('⚠️ No data available, creating local fallback data...');
-        const empresas = [
-            { id: generateUUID(), nombre: 'MAVICOL SAS', nit: '', created_at: new Date().toISOString() },
-            { id: generateUUID(), nombre: 'PROEXI SAS', nit: '', created_at: new Date().toISOString() },
-            { id: generateUUID(), nombre: 'CONSTRUCTORA 360 SAS', nit: '', created_at: new Date().toISOString() },
-            { id: generateUUID(), nombre: 'UT MEDICINA INTERNA', nit: '', created_at: new Date().toISOString() },
-            { id: generateUUID(), nombre: 'UT ORU 2020', nit: '', created_at: new Date().toISOString() },
-        ];
-
-        await db.empresas.bulkAdd(empresas);
-
-        // Create sample cajas
-        const cajas = [
-            { id: generateUUID(), nombre: 'Caja Rubén', tipo: 'Efectivo', empresa_id: empresas[0].id, saldo_actual: 0, created_at: new Date().toISOString() },
-            { id: generateUUID(), nombre: 'Caja 24/7', tipo: 'Efectivo', empresa_id: empresas[0].id, saldo_actual: 0, created_at: new Date().toISOString() },
-            { id: generateUUID(), nombre: 'Banco MAVICOL', tipo: 'Banco', empresa_id: empresas[0].id, saldo_actual: 0, created_at: new Date().toISOString() },
-            { id: generateUUID(), nombre: 'Caja PROEXI', tipo: 'Efectivo', empresa_id: empresas[1].id, saldo_actual: 0, created_at: new Date().toISOString() },
-            { id: generateUUID(), nombre: 'Caja 360 SAS', tipo: 'Efectivo', empresa_id: empresas[2].id, saldo_actual: 0, created_at: new Date().toISOString() },
-            { id: generateUUID(), nombre: 'Caja Hospital', tipo: 'Efectivo', empresa_id: empresas[3].id, saldo_actual: 0, created_at: new Date().toISOString() },
-        ];
-
-        await db.cajas.bulkAdd(cajas);
-
-        // Create sample projects
-        const proyectos = [
-            { id: generateUUID(), nombre: 'Proyecto Educación', empresa_id: empresas[0].id, presupuesto_estimado: 0, estado: 'Activo', created_at: new Date().toISOString() },
-            { id: generateUUID(), nombre: 'Obra Pavimentación', empresa_id: empresas[0].id, presupuesto_estimado: 0, estado: 'Activo', created_at: new Date().toISOString() },
-            { id: generateUUID(), nombre: 'Vías Terciarias', empresa_id: empresas[4].id, presupuesto_estimado: 0, estado: 'Activo', created_at: new Date().toISOString() },
-            { id: generateUUID(), nombre: 'Universidad Catatumbo', empresa_id: empresas[0].id, presupuesto_estimado: 0, estado: 'Activo', created_at: new Date().toISOString() },
-            { id: generateUUID(), nombre: 'Hospital 24/7', empresa_id: empresas[3].id, presupuesto_estimado: 0, estado: 'Activo', created_at: new Date().toISOString() },
-        ];
-
-        await db.proyectos.bulkAdd(proyectos);
-
-        console.log('✅ Local fallback data seeded successfully');
+        console.log('⚠️ No data available. Connect to internet to sync from Supabase, or create entities manually.');
     }
 }
 

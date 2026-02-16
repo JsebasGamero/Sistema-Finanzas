@@ -78,6 +78,13 @@ export default function TransactionForm({ onTransactionAdded }) {
                     created_at: new Date().toISOString()
                 }));
                 await db.categorias.bulkAdd(newCats);
+                // Sync seeded categories to Supabase
+                for (const cat of newCats) {
+                    await addToSyncQueue('categorias', 'INSERT', cat);
+                }
+                if (navigator.onLine) {
+                    try { await processSyncQueue(); } catch (err) { console.log('Sync error:', err); }
+                }
                 categoriasData = newCats;
             }
         } catch (e) {
