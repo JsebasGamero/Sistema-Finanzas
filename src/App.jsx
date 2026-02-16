@@ -10,7 +10,7 @@ import ToastContainer from './components/ToastNotification';
 import LoginScreen from './components/LoginScreen';
 import { useAuth } from './context/AuthContext';
 import { db, seedInitialData } from './services/db';
-import syncService from './services/syncService';
+import syncService, { processSyncQueue } from './services/syncService';
 import useOnlineStatus from './hooks/useOnlineStatus';
 import useToast from './hooks/useToast';
 import './index.css';
@@ -45,10 +45,28 @@ function App() {
 
   async function initializeApp() {
     try {
-      // Seed initial data if needed
+      // FIRST: Push any pending local changes to Supabase before syncing
+      // This ensures no local data is lost when we clear-and-replace
+      if (navigator.onLine) {
+        try {
+          const syncResult = await processSyncQueue();
+          if (syncResult.synced > 0) {
+            console.log(`✅ Pushed ${syncResult.synced} pending operations before sync`);
+          }
+        } catch (err) {
+          console.log('⚠️ Could not push pending operations:', err);
+        }
+      }
+
+      // THEN: Sync from Supabase (clear local + replace with cloud data)
       await seedInitialData();
 
-      // Check pending sync count
+      // Clear the sync queue after a fresh pull (all data is now up-to-date)
+      if (navigator.onLine) {
+        await db.sync_queue.clear();
+      }
+
+      // Check remaining pending sync count
       const count = await syncService.getPendingSyncCount();
       setPendingSync(count);
 
