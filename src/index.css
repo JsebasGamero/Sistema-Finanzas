@@ -41,6 +41,10 @@
 html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
+  height: 100%;
+  overflow: hidden;
+  /* Prevent bounce on html */
+  overscroll-behavior: none;
 }
 
 body {
@@ -48,10 +52,24 @@ body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  min-height: 100vh;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  /* Prevent bounce on body */
+  overscroll-behavior: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.5;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+/* Mobile scroll support */
+.mobile-scroll {
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ============================================

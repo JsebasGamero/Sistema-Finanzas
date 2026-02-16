@@ -96,7 +96,7 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
     ];
 
     return (
-        <div className="h-screen bg-primary flex flex-col lg:flex-row overflow-hidden">
+        <div className="h-full w-full bg-primary flex flex-col lg:flex-row overflow-hidden">
             {/* Desktop Sidebar */}
             <aside className="hidden lg:flex lg:flex-col lg:w-[260px] bg-secondary flex-shrink-0"
                 style={{ borderRight: '1px solid rgba(255,255,255,0.06)' }}>
@@ -187,7 +187,7 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
             </aside>
 
             {/* Main Content Area */}
-            <div className="flex-1 flex flex-col min-w-0">
+            <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
                 {/* Mobile Header */}
                 <header className="flex-shrink-0 bg-secondary px-4 py-3 flex items-center justify-between lg:hidden"
                     style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
@@ -357,7 +357,7 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                 )}
 
                 {/* Content area – Scrollable */}
-                <main className="flex-1 overflow-y-auto p-4 sm:p-5 md:p-6 lg:p-8 pb-24 lg:pb-8">
+                <main className="flex-1 overflow-y-auto mobile-scroll p-4 sm:p-5 md:p-6 lg:p-8 pb-24 lg:pb-8">
                     <div className="max-w-7xl mx-auto">
                         {children}
                     </div>
