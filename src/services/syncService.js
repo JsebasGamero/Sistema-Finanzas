@@ -172,7 +172,7 @@ function prepareForSupabase(data, tabla = 'transacciones') {
         ],
         deudas_cajas: [
             'id', 'caja_deudora_id', 'caja_acreedora_id', 'monto_original',
-            'monto_pendiente', 'fecha_prestamo', 'estado', 'descripcion', 'pagos', 'usuario_nombre', 'created_at'
+            'monto_pendiente', 'fecha_prestamo', 'estado', 'pagos', 'usuario_nombre', 'created_at'
         ],
         deudas_terceros: [
             'id', 'tercero_id', 'proyecto_id', 'empresa_id', 'monto_original',
