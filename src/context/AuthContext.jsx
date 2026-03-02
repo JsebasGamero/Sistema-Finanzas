@@ -60,10 +60,14 @@ export function AuthProvider({ children }) {
     }
 
     async function logout() {
-        const { error } = await supabase.auth.signOut();
-        if (error) throw error;
+        try {
+            // Attempt to sign out from Supabase (may fail if offline or session is already dead)
+            await supabase.auth.signOut();
+        } catch (error) {
+            console.error('⚠️ Error during Supabase signOut (proceeding with local logout):', error);
+        }
 
-        // Clear local database on logout to prevent data leakage and stale data pushes
+        // ALWAYS clear local database on logout to prevent data leakage and stale data
         try {
             const { db } = await import('../services/db.js');
             await Promise.all(db.tables.map(table => table.clear()));
@@ -72,6 +76,7 @@ export function AuthProvider({ children }) {
             console.error('⚠️ Could not clear local database on logout:', e);
         }
 
+        // ALWAYS clear the current user state
         setCurrentUser(null);
     }
 
