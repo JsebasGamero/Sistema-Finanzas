@@ -9,8 +9,8 @@ import ReportsPanel from './components/ReportsPanel';
 import ToastContainer from './components/ToastNotification';
 import LoginScreen from './components/LoginScreen';
 import { useAuth } from './context/AuthContext';
-import { db, seedInitialData } from './services/db';
-import syncService, { processSyncQueue } from './services/syncService';
+import { seedInitialData } from './services/db';
+import syncService, { processSyncQueue, reapplyPendingOperations } from './services/syncService';
 import useOnlineStatus from './hooks/useOnlineStatus';
 import useToast from './hooks/useToast';
 import './index.css';
@@ -61,14 +61,24 @@ function App() {
       // THEN: Sync from Supabase (clear local + replace with cloud data)
       await seedInitialData();
 
-      // Clear the sync queue after a fresh pull (all data is now up-to-date)
-      if (navigator.onLine) {
-        await db.sync_queue.clear();
-      }
+      // NO vaciar la cola aquí. processSyncQueue() ya elimina cada operación
+      // que subió con éxito; lo único que queda en la cola son operaciones que
+      // fallaron. Un clear() ciego destruía justamente el trabajo offline que
+      // todavía no se ha podido guardar en la nube.
+      //
+      // Y como el pull hace clear+replace de las tablas locales, volvemos a
+      // aplicar lo pendiente encima para que el usuario siga viendo lo que
+      // registró sin señal.
+      await reapplyPendingOperations();
 
-      // Check remaining pending sync count
       const count = await syncService.getPendingSyncCount();
       setPendingSync(count);
+
+      if (count > 0) {
+        toast.warning(
+          `Hay ${count} cambio(s) sin sincronizar. Se reintentarán automáticamente.`
+        );
+      }
 
       setInitialized(true);
     } catch (error) {

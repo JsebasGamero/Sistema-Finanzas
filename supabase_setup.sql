@@ -186,60 +186,48 @@ CREATE TRIGGER update_transacciones_updated_at
 
 -- =====================================================
 -- 5. ROW LEVEL SECURITY (RLS)
--- Nota: Permite acceso público por ahora. Después puedes
--- agregar autenticación con usuarios.
+-- Solo usuarios autenticados. La anon key viaja en el bundle JS
+-- (es publica por diseno), asi que politicas `USING (true)` sin
+-- restriccion de rol equivalen a dejar la base abierta a internet.
 -- =====================================================
 
-ALTER TABLE empresas ENABLE ROW LEVEL SECURITY;
-ALTER TABLE proyectos ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cajas ENABLE ROW LEVEL SECURITY;
-ALTER TABLE terceros ENABLE ROW LEVEL SECURITY;
-ALTER TABLE transacciones ENABLE ROW LEVEL SECURITY;
-ALTER TABLE categorias ENABLE ROW LEVEL SECURITY;
+ALTER TABLE empresas         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE proyectos        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cajas            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE terceros         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE transacciones    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE categorias       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deudas_cajas     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deudas_terceros  ENABLE ROW LEVEL SECURITY;
 
--- Políticas de acceso público (para desarrollo)
--- IMPORTANTE: Para producción, cambia estas políticas para requerir autenticación
+-- Politicas CRUD para el rol `authenticated` sobre todas las tablas.
+-- Hoy todos los usuarios autenticados comparten el mismo conjunto de datos.
+-- Si mas adelante hace falta separar por empresa o por rol, el punto de
+-- cambio es exactamente este bloque.
+DO $$
+DECLARE
+  t TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY[
+    'empresas', 'proyectos', 'cajas', 'terceros',
+    'transacciones', 'categorias', 'deudas_cajas', 'deudas_terceros'
+  ]
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS "auth_select_%1$s" ON public.%1$I', t);
+    EXECUTE format('DROP POLICY IF EXISTS "auth_insert_%1$s" ON public.%1$I', t);
+    EXECUTE format('DROP POLICY IF EXISTS "auth_update_%1$s" ON public.%1$I', t);
+    EXECUTE format('DROP POLICY IF EXISTS "auth_delete_%1$s" ON public.%1$I', t);
 
-CREATE POLICY "Allow public read empresas" ON empresas FOR SELECT USING (true);
-CREATE POLICY "Allow public insert empresas" ON empresas FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update empresas" ON empresas FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete empresas" ON empresas FOR DELETE USING (true);
-
-CREATE POLICY "Allow public read proyectos" ON proyectos FOR SELECT USING (true);
-CREATE POLICY "Allow public insert proyectos" ON proyectos FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update proyectos" ON proyectos FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete proyectos" ON proyectos FOR DELETE USING (true);
-
-CREATE POLICY "Allow public read cajas" ON cajas FOR SELECT USING (true);
-CREATE POLICY "Allow public insert cajas" ON cajas FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update cajas" ON cajas FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete cajas" ON cajas FOR DELETE USING (true);
-
-CREATE POLICY "Allow public read terceros" ON terceros FOR SELECT USING (true);
-CREATE POLICY "Allow public insert terceros" ON terceros FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update terceros" ON terceros FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete terceros" ON terceros FOR DELETE USING (true);
-
-CREATE POLICY "Allow public read transacciones" ON transacciones FOR SELECT USING (true);
-CREATE POLICY "Allow public insert transacciones" ON transacciones FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update transacciones" ON transacciones FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete transacciones" ON transacciones FOR DELETE USING (true);
-
-CREATE POLICY "Allow public read categorias" ON categorias FOR SELECT USING (true);
-CREATE POLICY "Allow public insert categorias" ON categorias FOR INSERT WITH CHECK (true);
-
-ALTER TABLE deudas_cajas ENABLE ROW LEVEL SECURITY;
-ALTER TABLE deudas_terceros ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Allow public read deudas_cajas" ON deudas_cajas FOR SELECT USING (true);
-CREATE POLICY "Allow public insert deudas_cajas" ON deudas_cajas FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update deudas_cajas" ON deudas_cajas FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete deudas_cajas" ON deudas_cajas FOR DELETE USING (true);
-
-CREATE POLICY "Allow public read deudas_terceros" ON deudas_terceros FOR SELECT USING (true);
-CREATE POLICY "Allow public insert deudas_terceros" ON deudas_terceros FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update deudas_terceros" ON deudas_terceros FOR UPDATE USING (true);
-CREATE POLICY "Allow public delete deudas_terceros" ON deudas_terceros FOR DELETE USING (true);
+    EXECUTE format(
+      'CREATE POLICY "auth_select_%1$s" ON public.%1$I FOR SELECT TO authenticated USING (true)', t);
+    EXECUTE format(
+      'CREATE POLICY "auth_insert_%1$s" ON public.%1$I FOR INSERT TO authenticated WITH CHECK (true)', t);
+    EXECUTE format(
+      'CREATE POLICY "auth_update_%1$s" ON public.%1$I FOR UPDATE TO authenticated USING (true) WITH CHECK (true)', t);
+    EXECUTE format(
+      'CREATE POLICY "auth_delete_%1$s" ON public.%1$I FOR DELETE TO authenticated USING (true)', t);
+  END LOOP;
+END $$;
 
 -- =====================================================
 -- 6. DATOS INICIALES - EMPRESAS
@@ -350,7 +338,15 @@ ON CONFLICT (nombre) DO NOTHING;
 -- 1. Ve a Storage en el dashboard de Supabase
 -- 2. Clic en "New bucket"
 -- 3. Nombre: "soportes"
--- 4. Marca "Public bucket" si quieres que las imágenes sean accesibles
+-- 4. Marca "Public bucket"
+--
+-- PENDIENTE (deuda conocida): el bucket es público, así que cualquiera con la
+-- URL exacta de una foto puede verla. Las URLs son largas y aleatorias, pero
+-- eso es seguridad por oscuridad, no control de acceso.
+-- El arreglo correcto es un bucket privado + URLs firmadas, lo que exige
+-- guardar en `transacciones.soporte_url` la RUTA del archivo en vez de la URL
+-- pública, y firmarla al momento de mostrarla. Está en el backlog porque
+-- rompe los soportes ya guardados y necesita una migración de datos.
 
 -- =====================================================
 -- 11. VISTAS ÚTILES

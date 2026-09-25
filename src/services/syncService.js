@@ -13,6 +13,57 @@ export async function addToSyncQueue(tabla, operacion, datos) {
 }
 
 
+// Re-aplica sobre la base local las operaciones que siguen pendientes en la cola.
+//
+// Por qué existe: syncFromSupabase() hace clear + replace de las tablas locales
+// usando la nube como fuente de verdad. Si una operación no se pudo subir
+// todavía (sin señal, error transitorio), su fila desaparece de la pantalla
+// aunque el payload siga vivo en sync_queue. El usuario ve evaporarse lo que
+// acaba de registrar.
+//
+// Llamando a esto después de cada pull, el estado local vuelve a ser
+// "lo que hay en la nube + lo mío que aún no subió", que es lo que el usuario
+// espera ver. Es idempotente: los payloads son filas completas.
+export async function reapplyPendingOperations() {
+    const pending = await db.sync_queue.orderBy('id').toArray();
+    if (pending.length === 0) return 0;
+
+    let reapplied = 0;
+
+    for (const operation of pending) {
+        try {
+            const datos = JSON.parse(operation.datos);
+            const tabla = db[operation.tabla];
+            if (!tabla) continue;
+
+            switch (operation.operacion) {
+                case 'INSERT':
+                    await tabla.put(datos); // upsert: el payload es la fila completa
+                    break;
+                case 'UPDATE': {
+                    // Ojo: algunos UPDATE encolan payloads PARCIALES
+                    // (p.ej. { id, saldo_actual }). Un put() los tomaría como la
+                    // fila entera y borraría nombre/tipo/empresa_id. Por eso
+                    // update(), que fusiona; y solo si la fila no existe
+                    // localmente caemos a put().
+                    const merged = await tabla.update(datos.id, datos);
+                    if (merged === 0) await tabla.put(datos);
+                    break;
+                }
+                case 'DELETE':
+                    await tabla.delete(datos.id);
+                    break;
+            }
+            reapplied++;
+        } catch (error) {
+            console.error('No se pudo re-aplicar la operación pendiente:', operation, error);
+        }
+    }
+
+    console.log(`Re-aplicadas ${reapplied} operación(es) pendientes sobre los datos locales`);
+    return reapplied;
+}
+
 // Process pending sync operations
 export async function processSyncQueue() {
     if (!isSupabaseConfigured()) {
@@ -497,6 +548,7 @@ export default {
     getTransactions,
     getPendingSyncCount,
     processSyncQueue,
+    reapplyPendingOperations,
     getIntercajaDebts,
     forceSync,
     createDeudaCajas,

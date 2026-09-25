@@ -22,3 +22,15 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Variables de entorno (NUNCA commitear: contienen credenciales)
+.env
+.env.local
+.env.*.local
+
+# Capacitor / Android - artefactos de build
+android/app/build/
+android/build/
+android/.gradle/
+android/app/src/main/assets/public/
+android/local.properties

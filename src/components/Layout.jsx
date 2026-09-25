@@ -22,11 +22,25 @@ import {
 } from 'lucide-react';
 import useOnlineStatus from '../hooks/useOnlineStatus';
 import { useAuth } from '../context/AuthContext';
+import ConfirmModal from './ConfirmModal';
 
 export default function Layout({ children, activeTab, setActiveTab, pendingSync, onSync, onLogout }) {
     const [menuOpen, setMenuOpen] = useState(false);
     const isOnline = useOnlineStatus();
-    const { currentUser, updatePassword, login } = useAuth();
+    const { currentUser, updatePassword, login, getPendingChangesCount } = useAuth();
+
+    // Aviso antes de cerrar sesión si quedan cambios sin subir a la nube.
+    const [logoutPending, setLogoutPending] = useState(null);
+
+    async function handleLogoutClick() {
+        setMenuOpen(false);
+        const pendientes = await getPendingChangesCount();
+        if (pendientes > 0) {
+            setLogoutPending(pendientes);
+        } else {
+            onLogout();
+        }
+    }
 
     // Change password state
     const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -177,7 +191,7 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                     </button>
 
                     <button
-                        onClick={onLogout}
+                        onClick={handleLogoutClick}
                         className="w-full flex items-center justify-center gap-2 text-gray-500 hover:text-red-400 px-3 py-2.5 rounded-xl text-sm hover:bg-red-500/8 transition-colors"
                     >
                         <LogOut size={15} />
@@ -232,7 +246,7 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                             <KeyRound size={17} />
                         </button>
                         <button
-                            onClick={onLogout}
+                            onClick={handleLogoutClick}
                             className="text-gray-500 hover:text-red-400 p-1 transition-colors"
                             title="Cerrar sesión"
                         >
@@ -345,7 +359,7 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                                 </button>
 
                                 <button
-                                    onClick={() => { onLogout(); setMenuOpen(false); }}
+                                    onClick={handleLogoutClick}
                                     className="w-full flex items-center justify-center gap-2 text-gray-500 hover:text-red-400 px-3 py-2.5 rounded-xl text-sm hover:bg-red-500/8 transition-colors"
                                 >
                                     <LogOut size={15} />
@@ -391,6 +405,22 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                     </div>
                 </nav>
             </div>
+            {/* Aviso de cambios sin sincronizar antes de cerrar sesión */}
+            <ConfirmModal
+                isOpen={logoutPending !== null}
+                title="Tienes cambios sin sincronizar"
+                message={
+                    `Quedan ${logoutPending} cambio(s) que todavía no se han guardado en la nube. ` +
+                    'Se conservarán en este dispositivo y se subirán la próxima vez que entres con conexión. ' +
+                    'Si prefieres asegurarlos ahora, cancela y usa el botón Sincronizar.'
+                }
+                confirmText="Cerrar sesión igual"
+                cancelText="Cancelar"
+                type="default"
+                onConfirm={() => { setLogoutPending(null); onLogout(); }}
+                onCancel={() => setLogoutPending(null)}
+            />
+
             {/* Change Password Modal */}
             {showPasswordModal && (
                 <>
