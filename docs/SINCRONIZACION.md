@@ -35,6 +35,8 @@ de `CLAUDE.md`).
 | `src/services/db.js` | Esquema Dexie (versiones 1 a 5) y `syncFromSupabase()` (pull) |
 | `src/services/syncService.js` | `addToSyncQueue`, `processSyncQueue`, `prepareForSupabase`, `reapplyPendingOperations` |
 | `src/App.jsx` | Secuencia de arranque y reintento al recuperar la conexión |
+| `src/infrastructure/sync/outboxDexie.js` | Única implementación del registro de `sync_queue` (`addToSyncQueue` delega aquí) |
+| `src/infrastructure/dexie/aplicadorDeAjustesDexie.js` | Único escritor de `saldo_actual` por movimientos; encola un `cajas UPDATE` por ajuste |
 
 ## Secuencia de arranque
 
@@ -88,6 +90,17 @@ filas completas.
 4. El orden de la cola importa: el padre (caja, proyecto) antes que el hijo
    (transacción).
 5. Los valores escritos deben cumplir los CHECK del esquema.
+
+## Ajustes de saldo en la cola
+
+Cada ajuste de saldo encola un `cajas UPDATE`, **antes** de la operación de
+la transacción que lo provoca. El payload depende de quién llama (ADR-004):
+
+- `parcial` (`{ id, saldo_actual }`): movimientos (alta, edición, borrado).
+- `filaCompleta` (`{ ...caja, saldo_actual }`): paneles de deudas.
+
+Una edición encola hasta 4 UPDATE (revertir origen y destino, aplicar origen y
+destino). No se consolidan por caja todavía.
 
 ## Problemas conocidos
 

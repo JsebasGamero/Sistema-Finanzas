@@ -62,8 +62,11 @@ componentes**: si necesitas una regla (efecto en saldos, estado de una deuda),
 
 ## Verificación
 
-Usa la skill `verificar-cambios`. Toma capturas a 320px y 1280px de lo que
-cambiaste. Lo que esté detrás del login no lo puedes ver: dilo.
+Los subagentes **no tienen herramientas de navegador**. Tú verificas con
+`npm run build`, `npm run lint` y `npm test`, y revisando tu diff contra las
+reglas de responsive de arriba. En la entrega, lista qué debe comprobar el
+orquestador en el navegador (a 320px y 1280px) y qué solo puede probar una
+persona detrás del login.
 
 ## Entrega
 

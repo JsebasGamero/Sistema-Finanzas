@@ -10,8 +10,13 @@ Un solo orquestador (la sesión principal) y especialistas con **zonas de
 archivos separadas**. Los agentes de solo lectura planifican, revisan y
 verifican; los implementadores escriben solo dentro de su zona.
 
-Restricción de Claude Code: **los subagentes no pueden lanzar otros
-subagentes.** Todo reparto lo hace el orquestador.
+Restricciones de Claude Code:
+
+- **Los subagentes no pueden lanzar otros subagentes.** Todo reparto lo hace
+  el orquestador.
+- **Los subagentes no tienen herramientas de navegador.** La verificación en
+  el navegador (skill `verificar-cambios`, paso 4) la hace siempre el
+  orquestador, después de `qa`.
 
 ## Agentes
 

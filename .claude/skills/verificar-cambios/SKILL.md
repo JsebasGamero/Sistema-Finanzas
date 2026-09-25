@@ -26,13 +26,15 @@ fallo. Si cerraste Q1, actualiza esta línea base.
 
 ## 3. Tests
 
-Si existe Vitest en `package.json`:
-
 ```bash
-npx vitest run
+npm test
 ```
 
+Todos deben pasar.
+
 ## 4. Navegador
+
+Solo el orquestador: los subagentes no tienen herramientas de navegador.
 
 Arranca el servidor con la configuración `rsistema-dev` de
 `.claude/launch.json` (herramienta `preview_start`).

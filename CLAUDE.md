@@ -22,12 +22,14 @@ npm run dev            # desarrollo, puerto 5173, contra Supabase de DESARROLLO
 npm run build          # build de producción; debe pasar antes de cada commit
 npm run build:staging  # build de pruebas (usa .env.staging.local)
 npm run lint           # ESLint sobre src/ (android/ y dist/ están ignorados)
+npm test               # Vitest: dominio, aplicación e infraestructura
 ```
 
-No hay suite de tests todavía. Se agrega Vitest al empezar la Fase 3
-(ver `docs/BACKLOG.md`). Hasta entonces, "verificado" significa: build limpio,
-lint sin errores nuevos, y comprobación en el navegador (skill
-`verificar-cambios`).
+Los tests viven junto al archivo que prueban (`*.test.js`) y no importan
+`services/db.js`, `syncService.js`, `supabase.js` ni `app/contenedor.js`
+(cargan `import.meta.env` y el cliente de Supabase): se prueba con dobles en
+memoria. Las capas nuevas (`domain/`, `application/`) se prueban siempre;
+los componentes todavía no tienen tests.
 
 ## Mapa de la documentación
 
@@ -75,11 +77,14 @@ Cada una tiene su historia en `docs/BACKLOG.md`.
 
 ## Deuda conocida que todavía está viva
 
-- **Los saldos pueden derivar.** `cajas.saldo_actual` se muta de forma
-  incremental desde cinco sitios distintos. El arreglo es derivarlo de las
-  transacciones (Fase 4). Mientras tanto: si tocas lógica de saldos, cambia
-  todos los sitios o ninguno, y dilo en el commit.
-- Los componentes hablan directo con Dexie. La capa de dominio no existe aún.
+- **Los saldos pueden derivar entre dispositivos.** `cajas.saldo_actual`
+  sigue almacenado (last-write-wins). Ya hay una sola regla
+  (`domain/rules/efectoEnSaldos.js`) y un solo escritor
+  (`infrastructure/dexie/aplicadorDeAjustesDexie.js`). **Nunca escribas
+  `saldo_actual` por efecto de un movimiento fuera del aplicador.** Derivarlo
+  de las transacciones es la Fase 4 (ADR-002).
+- Movimientos ya pasan por casos de uso (`src/app/contenedor.js`). Deudas,
+  maestros y reportes todavía hablan directo con Dexie.
 - El bucket `soportes` es público.
 
 ## Convenciones

@@ -2,8 +2,18 @@
 
 ## Estado actual
 
+Migración en curso (ADR-003). Porciones 1 y 2 hechas: dominio, casos de uso
+de movimientos y aplicador único de saldos.
+
 ```
 src/
+├─ domain/                 reglas puras: efectoEnSaldos, validarMovimiento, dinero, errores, puertos
+├─ application/movimientos registrar / editar / borrar movimiento
+├─ infrastructure/         outbox, repositorio de transacciones, sincronizador,
+│                          aplicador de ajustes de saldo (único escritor de saldo_actual)
+├─ app/contenedor.js       composición: arma los casos de uso con sus adaptadores
+│
+│  --- estructura anterior, en migración ---
 ├─ App.jsx                 navegación por pestañas (sin router), arranque y sync
 ├─ context/AuthContext.jsx sesión de Supabase Auth
 ├─ components/             pantallas y piezas de UI, con lógica de negocio adentro
@@ -16,10 +26,11 @@ src/
    └─ dinero.js            aritmética y estados de deuda
 ```
 
-**El problema central:** los componentes leen y escriben Dexie directamente y
-encolan operaciones de sync por su cuenta. La regla "un egreso resta del
-saldo" está copiada en cinco componentes, cada uno con su variante. No hay un
-lugar único donde viva el negocio, y por eso los saldos derivan.
+**El problema central** (en resolución): los componentes leían y escribían
+Dexie directamente y la regla "un egreso resta del saldo" estaba copiada en
+cinco sitios. Movimientos ya usa casos de uso y los cinco sitios usan la misma
+regla. Los paneles de deudas siguen creando sus transacciones a mano (puente
+`aplicarEfectoEnSaldos` del contenedor) hasta la porción 3.
 
 Pantallas y dónde está su lógica:
 
@@ -88,9 +99,9 @@ src/
 Patrón estrangulador, por **porciones verticales**. Cada porción es un PR que
 deja la app funcionando.
 
-1. **Andamiaje.** Crear las carpetas, agregar Vitest, crear `Dinero` y
+1. **[hecho]** **Andamiaje.** Crear las carpetas, agregar Vitest, crear `Dinero` y
    `efectoEnSaldos()` con tests. No se toca UI.
-2. **Movimientos.** Repositorio Dexie de transacciones + casos de uso
+2. **[hecho]** **Movimientos.** Repositorio Dexie de transacciones + casos de uso
    registrar/editar/borrar. `TransactionForm` y `ProjectDashboard` pasan a
    usarlos. Se borran las copias locales de la lógica de saldos.
 3. **Deudas.** Casos de uso de préstamo y abono. Migran los dos paneles.

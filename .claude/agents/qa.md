@@ -16,8 +16,11 @@ Como mínimo:
 2. `npm run lint`. Compara con el estado anterior: reporta solo errores
    **nuevos** como fallo (hoy queda 1 error conocido, Q1 en el BACKLOG).
 3. Tests, si existen (`npx vitest run`).
-4. Lo que se pueda comprobar sin iniciar sesión (login, carga sin errores de
-   consola, ausencia de desborde horizontal a 320px).
+4. Greps de arquitectura y de invariantes que te pida el orquestador.
+
+**No tienes navegador.** La comprobación en el navegador (carga sin errores de
+consola, desborde a 320px) la hace el orquestador, que sí tiene esas
+herramientas. No la reportes como hecha.
 
 ## Reglas
 
@@ -36,7 +39,6 @@ Como mínimo:
 | build | pasa / falla | ... |
 | lint | sin errores nuevos / N errores nuevos | ... |
 | tests | N pasan, M fallan / no hay tests | ... |
-| navegador 320px | ... | ... |
 
 ### No verificado (requiere persona)
 1. Paso a paso de cada flujo a probar tras el login.

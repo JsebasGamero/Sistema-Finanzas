@@ -12,7 +12,7 @@ Estados: `pendiente` · `en curso` · `hecho` · `hecho (requiere acción manual
 | 0 | Contención: RLS, credenciales, pérdida de trabajo offline | hecho (requiere acción manual) |
 | 1 | Bugs de datos | hecho |
 | 2 | Móvil y responsive | hecho |
-| 3 | Clean Architecture, por porciones verticales | pendiente |
+| 3 | Clean Architecture, por porciones verticales | en curso: porciones 1 y 2 hechas |
 | 4 | Saldo derivado y dinero como entero | pendiente |
 | 5 | UI: design system, tema claro de alto contraste, densidad | pendiente |
 
@@ -34,7 +34,7 @@ Estados: `pendiente` · `en curso` · `hecho` · `hecho (requiere acción manual
 | C3 | Proyectos al vuelo con `estado: 'ACTIVO'`: nunca subían y el gasto perdía su obra | hecho | cdb3d86 |
 | C4 | `sync_queue.clear()` ciego al arrancar | hecho | 5ecb299 |
 | C5 | El logout borraba la cola de sync | hecho | 5ecb299 |
-| C6 | Saldos incrementales desde cinco sitios: derivan entre dispositivos | pendiente (Fase 4) | |
+| C6 | Saldos incrementales desde cinco sitios: derivan entre dispositivos | en curso: una sola regla y un solo escritor (Fase 3); derivarlo es la Fase 4 | 67350d7 |
 | C7 | Transferencia sin caja destino hacía desaparecer dinero | hecho | cdb3d86 |
 | C8 | Borrar maestros sin revisar referencias | hecho (avisa; no bloquea) | cdb3d86 |
 | C9 | NIT convertido a número | hecho | cdb3d86 |
@@ -46,6 +46,12 @@ Estados: `pendiente` · `en curso` · `hecho` · `hecho (requiere acción manual
 | C15 | Borrar una transacción de préstamo/abono no actualiza la deuda asociada | pendiente | |
 | C16 | Bucket `soportes` público | pendiente | |
 | C17 | Transacciones con categoría ya perdida: el nombre original es irrecuperable | descartado (se muestra "Sin categoría") | |
+| C18 | Se podía registrar o editar un movimiento con monto 0; Supabase lo rechazaba y se perdía | hecho | 3562a45 |
+| C19 | Saldo o monto guardado como string se concatenaba ("100" + 5 = "1005") | hecho | 67350d7 |
+| C20 | Paneles de deudas marcan `sincronizado: true` aunque la subida haya fallado | pendiente (porción 3) | |
+| C21 | Editar un movimiento no lo marca `sincronizado: false` | pendiente | |
+| C22 | Escrituras no atómicas: saldo y transacción pueden quedar a medias si algo falla entre medio | pendiente | |
+| C23 | `recalculateCajaBalances()` pondría a 0 los saldos iniciales y escribe en Supabase sin la cola; no llamarla | pendiente (Fase 4) | |
 
 ## Móvil y responsive
 
@@ -69,7 +75,10 @@ Estados: `pendiente` · `en curso` · `hecho` · `hecho (requiere acción manual
 | Q3 | `ReportsPanel.jsx` tiene 1800 líneas y 6 componentes | pendiente (Fase 3) |
 | Q4 | Búsquedas `.find()` dentro de loops en Reportes: O(n·m) | pendiente |
 | Q5 | Bundle principal de 2,8 MB sin code-splitting (AG-Grid, jsPDF, Recharts) | pendiente |
-| Q6 | Sin tests | pendiente (Fase 3: Vitest) |
+| Q6 | Sin tests | hecho: Vitest, 92 tests en dominio, aplicación e infraestructura (d3d4675) |
+| Q8 | `createTransaction`, `updateTransaction`, `deleteTransaction` de syncService: deprecados y sin llamadores; `updateTransaction` edita sin ajustar saldos | pendiente (eliminar en porción 7) |
+| Q9 | Reglas de transferencia duplicadas en TransactionForm y TransactionEditModal además del dominio | pendiente |
+| Q10 | Agentes `ui-movil` y `qa` pedían verificar en navegador, pero los subagentes no tienen navegador | hecho (lo hace el orquestador) |
 | Q7 | `alert()` y `confirm()` nativos en los paneles de deudas | pendiente (Fase 5) |
 
 ## UI (Fase 5)

@@ -74,7 +74,10 @@ Los "recomendados" se aplican si son baratos; si no, van al backlog.
 
 ## 5. Verificar
 
-Lanza `qa`. Si algo falla, vuelve al paso 3 con el agente dueño.
+Lanza `qa` (build, lint, tests, greps). Puede ir en segundo plano mientras tú
+haces la parte de navegador de `verificar-cambios`: los subagentes no tienen
+navegador, así que esa parte es siempre tuya. Si algo falla, vuelve al paso 3
+con el agente dueño.
 
 ## 6. Cerrar
 

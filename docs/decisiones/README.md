@@ -11,6 +11,7 @@ Para escribir una nueva, usa la skill `registrar-decision`.
 | 001 | [Las categorías se guardan por nombre](001-categoria-por-nombre.md) | aceptada |
 | 002 | [El saldo de una caja se deriva de sus movimientos](002-saldo-derivado.md) | propuesta |
 | 003 | [Clean Architecture por porciones verticales](003-clean-architecture-incremental.md) | aceptada |
+| 004 | [Un único aplicador de ajustes de saldo, como paso transitorio](004-aplicador-unico-transitorio.md) | aceptada |
 
 ## Plantilla
 
