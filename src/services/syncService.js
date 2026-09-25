@@ -204,7 +204,10 @@ function prepareForSupabase(data, tabla = 'transacciones') {
         transacciones: [
             'id', 'fecha', 'descripcion', 'monto', 'tipo_movimiento', 'categoria',
             'proyecto_id', 'caja_origen_id', 'caja_destino_id', 'tercero_id',
-            'soporte_url', 'sincronizado', 'usuario_nombre', 'device_id', 'created_at'
+            // 'editado_por' existe en la tabla y Reportes lo muestra, pero
+            // faltaba en esta lista: se filtraba en cada sync y nunca persistía.
+            'soporte_url', 'sincronizado', 'usuario_nombre', 'editado_por',
+            'device_id', 'created_at'
         ],
         empresas: [
             'id', 'nombre', 'nit', 'direccion', 'telefono', 'created_at', 'updated_at'
@@ -223,7 +226,10 @@ function prepareForSupabase(data, tabla = 'transacciones') {
         ],
         deudas_cajas: [
             'id', 'caja_deudora_id', 'caja_acreedora_id', 'monto_original',
-            'monto_pendiente', 'fecha_prestamo', 'estado', 'pagos', 'usuario_nombre', 'created_at'
+            // 'descripcion' no estaba aquí ni existía como columna: el concepto
+            // del préstamo se perdía en el siguiente pull. Ver migración 002.
+            'monto_pendiente', 'fecha_prestamo', 'estado', 'descripcion', 'pagos',
+            'usuario_nombre', 'created_at'
         ],
         deudas_terceros: [
             'id', 'tercero_id', 'proyecto_id', 'empresa_id', 'monto_original',

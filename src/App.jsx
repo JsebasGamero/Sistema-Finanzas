@@ -24,11 +24,16 @@ function App() {
   const wasOnline = useRef(true);
   const { currentUser, loading: authLoading, login, logout } = useAuth();
 
+  // Depende del id, no del objeto: extractUserInfo() devuelve un objeto nuevo
+  // en cada evento de auth, así que con `[currentUser]` un simple cambio de
+  // nombre disparaba un clear+pull completo de toda la base.
+  const userId = currentUser?.id;
   useEffect(() => {
-    if (currentUser) {
+    if (userId) {
       initializeApp();
     }
-  }, [currentUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
 
   // Detect online/offline changes and show notifications
   useEffect(() => {

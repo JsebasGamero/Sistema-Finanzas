@@ -15,6 +15,7 @@ import {
 import { db, generateUUID } from '../services/db';
 import { addToSyncQueue, processSyncQueue } from '../services/syncService';
 import { useAuth } from '../context/AuthContext';
+import { restarMontos, estadoDeuda } from '../services/dinero';
 
 export default function DeudaCajasPanel({ onDebtChanged }) {
     const { currentUser } = useAuth();
@@ -229,8 +230,10 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
             if (!confirmar) return;
         }
 
-        const newMontoPendiente = deuda.monto_pendiente - amount;
-        const newEstado = newMontoPendiente === 0 ? 'PAGADA' : 'PARCIAL';
+        // Antes: `=== 0` sobre flotantes. Un residuo de 1e-8 al abonar la
+        // totalidad dejaba la deuda en PARCIAL para siempre.
+        const newMontoPendiente = restarMontos(deuda.monto_pendiente, amount);
+        const newEstado = estadoDeuda(newMontoPendiente, deuda.monto_original);
         const pagos = [...(deuda.pagos || []), {
             monto: amount,
             fecha: new Date().toISOString(),

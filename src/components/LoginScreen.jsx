@@ -53,7 +53,7 @@ export default function LoginScreen({ onLogin }) {
             });
             if (error) throw error;
             setResetSent(true);
-        } catch (err) {
+        } catch {
             setError('Error al enviar el correo de recuperación');
         } finally {
             setLoading(false);

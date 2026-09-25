@@ -1,5 +1,5 @@
 // TransactionForm component - Form for income/expense/transfers with confirmation
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Save, Camera, ArrowRight, Check, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, CreditCard, Receipt, RefreshCw } from 'lucide-react';
 import { db, generateUUID } from '../services/db';
 import syncService, { addToSyncQueue, processSyncQueue } from '../services/syncService';
@@ -10,6 +10,7 @@ import AutocompleteInput from './AutocompleteInput';
 
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabase';
+import { CATEGORIAS_POR_DEFECTO, TIPO_CATEGORIA_POR_DEFECTO } from '../services/categorias';
 import { XCircle } from 'lucide-react';
 
 export default function TransactionForm({ onTransactionAdded }) {
@@ -31,6 +32,7 @@ export default function TransactionForm({ onTransactionAdded }) {
     const [saved, setSaved] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [soporteUrl, setSoporteUrl] = useState(null);
+    const [formError, setFormError] = useState('');
 
     // Confirmation modal state
     const [showConfirm, setShowConfirm] = useState(false);
@@ -43,11 +45,9 @@ export default function TransactionForm({ onTransactionAdded }) {
     const [terceros, setTerceros] = useState([]);
     const [categorias, setCategorias] = useState([]);
 
-    // Default categories to seed if none exist
-    const defaultCategorias = [
-        'Nómina', 'Materiales', 'Viáticos', 'Combustible (ACPM)', 'Transporte',
-        'Alquiler Maquinaria', 'Préstamo', 'Pago Préstamo', 'Servicios', 'Seguridad Social', 'Otros'
-    ];
+    // Evita que el seeding corra dos veces con el doble montaje de StrictMode
+    // (antes dejaba 22 categorías duplicadas en desarrollo).
+    const seedingRef = useRef(false);
 
     useEffect(() => {
         loadData();
@@ -69,16 +69,18 @@ export default function TransactionForm({ onTransactionAdded }) {
         let categoriasData = [];
         try {
             categoriasData = await db.categorias.toArray();
-            if (categoriasData.length === 0) {
-                // Seed default categories
-                const newCats = defaultCategorias.map(nombre => ({
+            if (categoriasData.length === 0 && !seedingRef.current) {
+                seedingRef.current = true;
+
+                const newCats = CATEGORIAS_POR_DEFECTO.map(nombre => ({
                     id: generateUUID(),
                     nombre,
-                    tipo: 'general',
+                    // 'general' violaba CHECK (tipo IN ('INGRESO','EGRESO','AMBOS'))
+                    // y la categoría se descartaba en silencio al sincronizar.
+                    tipo: TIPO_CATEGORIA_POR_DEFECTO,
                     created_at: new Date().toISOString()
                 }));
                 await db.categorias.bulkAdd(newCats);
-                // Sync seeded categories to Supabase
                 for (const cat of newCats) {
                     await addToSyncQueue('categorias', 'INSERT', cat);
                 }
@@ -87,12 +89,12 @@ export default function TransactionForm({ onTransactionAdded }) {
                 }
                 categoriasData = newCats;
             }
-        } catch (e) {
-            // If table doesn't exist yet, use defaults as objects
-            categoriasData = defaultCategorias.map((nombre, i) => ({
+        } catch (error) {
+            console.error('No se pudieron cargar las categorías:', error);
+            categoriasData = CATEGORIAS_POR_DEFECTO.map((nombre, i) => ({
                 id: `default-${i}`,
                 nombre,
-                tipo: 'general'
+                tipo: TIPO_CATEGORIA_POR_DEFECTO
             }));
         }
         setCategorias(categoriasData);
@@ -158,7 +160,7 @@ export default function TransactionForm({ onTransactionAdded }) {
         const newCategoria = {
             id: generateUUID(),
             nombre: nombre,
-            tipo: 'general',
+            tipo: TIPO_CATEGORIA_POR_DEFECTO,
             created_at: new Date().toISOString()
         };
 
@@ -204,7 +206,10 @@ export default function TransactionForm({ onTransactionAdded }) {
             id: generateUUID(),
             nombre: nombre,
             empresa_id: empresaId || null, // Link to current company if selected
-            estado: 'ACTIVO',
+            // 'ACTIVO' violaba CHECK (estado IN ('Activo','Pausado','Finalizado')):
+            // el proyecto nunca subía y la transacción que lo referenciaba se
+            // acababa guardando con proyecto_id = null.
+            estado: 'Activo',
             presupuesto_estimado: 0,
             created_at: new Date().toISOString()
         };
@@ -223,6 +228,20 @@ export default function TransactionForm({ onTransactionAdded }) {
     function handleSubmit(e) {
         e.preventDefault();
         if (!monto || !cajaOrigenId) return;
+
+        // Una transferencia sin destino restaba de la caja origen y no sumaba en
+        // ningún lado: el dinero desaparecía del sistema sin ningún aviso.
+        if (tipo === 'TRANSFERENCIA') {
+            if (!cajaDestinoId) {
+                setFormError('Una transferencia necesita caja destino. Elige a dónde va el dinero.');
+                return;
+            }
+            if (cajaDestinoId === cajaOrigenId) {
+                setFormError('La caja origen y la caja destino deben ser diferentes.');
+                return;
+            }
+        }
+        setFormError('');
 
         // Get names for confirmation display
         const cajaOrigen = cajas.find(c => c.id === cajaOrigenId);
@@ -520,7 +539,10 @@ export default function TransactionForm({ onTransactionAdded }) {
                                 onCreateNew={createNewCategoria}
                                 placeholder="Escribir o seleccionar categoría..."
                                 displayKey="nombre"
-                                valueKey="id"
+                                // Se guarda el NOMBRE, no el id: la columna es TEXT
+                                // y `categorias.nombre` es UNIQUE, así que el nombre
+                                // es el identificador estable entre dispositivos.
+                                valueKey="nombre"
                                 createLabel="Crear nueva categoría:"
                                 emptyMessage="Sin categorías"
                             />
@@ -651,6 +673,12 @@ export default function TransactionForm({ onTransactionAdded }) {
                                 </div>
                             )}
                         </div>
+
+                        {formError && (
+                            <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-red-400 text-sm">
+                                {formError}
+                            </div>
+                        )}
 
                         {/* Submit button */}
                         <button

@@ -15,23 +15,38 @@ export default function AutocompleteInput({
     disabled = false,
     className = ''
 }) {
-    const [inputValue, setInputValue] = useState('');
+    // `typed` es lo que el usuario está escribiendo ahora mismo.
+    // null = no está editando, así que se muestra la etiqueta del valor
+    // seleccionado.
+    //
+    // Antes esto se sincronizaba con un useEffect sobre [value, items, ...].
+    // Varios formularios pasan `items` en línea (p. ej. cajas.filter(...)), que
+    // es un array nuevo en cada render, así que el efecto se disparaba
+    // constantemente provocando renders en cascada. Derivarlo elimina el
+    // problema y de paso arregla que el texto se quedara desactualizado.
+    const [typed, setTyped] = useState(null);
     const [isOpen, setIsOpen] = useState(false);
     const [highlightIndex, setHighlightIndex] = useState(-1);
     const inputRef = useRef(null);
     const containerRef = useRef(null);
 
-    // Sync input value with selected item
-    useEffect(() => {
-        if (value) {
-            const selectedItem = items.find(item => item[valueKey] === value);
-            if (selectedItem) {
-                setInputValue(selectedItem[displayKey] || '');
-            }
-        } else {
-            setInputValue('');
-        }
-    }, [value, items, displayKey, valueKey]);
+    // Etiqueta del valor seleccionado.
+    function etiquetaDe(valor) {
+        if (!valor) return '';
+        const porValor = items.find(item => item[valueKey] === valor);
+        if (porValor) return porValor[displayKey] || '';
+
+        // Compatibilidad: transacciones antiguas guardan el UUID de la
+        // categoría en vez del nombre. Si no se encuentra por `valueKey`,
+        // se intenta por id antes de rendirse.
+        const porId = items.find(item => item.id === valor);
+        if (porId) return porId[displayKey] || '';
+
+        // Valor libre que el usuario escribió y aún no existe como item.
+        return valor;
+    }
+
+    const inputValue = typed !== null ? typed : etiquetaDe(value);
 
     // Filter items based on input
     const filteredItems = inputValue
@@ -53,6 +68,10 @@ export default function AutocompleteInput({
         function handleClickOutside(e) {
             if (containerRef.current && !containerRef.current.contains(e.target)) {
                 setIsOpen(false);
+                // Se descarta el texto a medio escribir: el input vuelve a
+                // reflejar lo que de verdad está seleccionado, en vez de
+                // quedarse con un texto que no corresponde a ningún valor.
+                setTyped(null);
             }
         }
         document.addEventListener('mousedown', handleClickOutside);
@@ -61,7 +80,7 @@ export default function AutocompleteInput({
 
     function handleInputChange(e) {
         const newValue = e.target.value;
-        setInputValue(newValue);
+        setTyped(newValue);
         setIsOpen(true);
         setHighlightIndex(-1);
 
@@ -72,7 +91,7 @@ export default function AutocompleteInput({
     }
 
     function handleSelectItem(item) {
-        setInputValue(item[displayKey]);
+        setTyped(null); // vuelve a mostrarse la etiqueta del valor seleccionado
         onChange?.(item[valueKey]);
         setIsOpen(false);
         setHighlightIndex(-1);
@@ -85,7 +104,7 @@ export default function AutocompleteInput({
         try {
             const newItem = await onCreateNew(trimmedValue);
             if (newItem) {
-                setInputValue(newItem[displayKey] || trimmedValue);
+                setTyped(null);
                 onChange?.(newItem[valueKey]);
             }
         } catch (error) {
@@ -126,12 +145,13 @@ export default function AutocompleteInput({
             case 'Escape':
                 setIsOpen(false);
                 setHighlightIndex(-1);
+                setTyped(null);
                 break;
         }
     }
 
     function handleClear() {
-        setInputValue('');
+        setTyped(null);
         onChange?.('');
         inputRef.current?.focus();
     }

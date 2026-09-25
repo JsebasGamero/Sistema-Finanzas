@@ -121,7 +121,7 @@ export async function syncFromSupabase() {
         try {
             const { data, error } = await supabase.from('categorias').select('*');
             if (!error) categorias = data || [];
-        } catch (e) {
+        } catch {
             console.log('⚠️ categorias table might not exist in Supabase yet');
         }
 
@@ -130,7 +130,7 @@ export async function syncFromSupabase() {
         try {
             const { data, error } = await supabase.from('deudas_cajas').select('*');
             if (!error) deudasCajas = data || [];
-        } catch (e) {
+        } catch {
             console.log('⚠️ deudas_cajas table might not exist in Supabase yet');
         }
 
@@ -139,7 +139,7 @@ export async function syncFromSupabase() {
         try {
             const { data, error } = await supabase.from('deudas_terceros').select('*');
             if (!error) deudasTerceros = data || [];
-        } catch (e) {
+        } catch {
             console.log('⚠️ deudas_terceros table might not exist in Supabase yet');
         }
 
@@ -184,7 +184,7 @@ export async function syncFromSupabase() {
                 await db.categorias.bulkAdd(categorias);
                 console.log(`✅ Synced ${categorias.length} categorias`);
             }
-        } catch (e) {
+        } catch {
             console.log('⚠️ categorias table might not exist locally yet');
         }
 
@@ -195,7 +195,7 @@ export async function syncFromSupabase() {
                 await db.deudas_cajas.bulkAdd(deudasCajas);
                 console.log(`✅ Synced ${deudasCajas.length} deudas_cajas`);
             }
-        } catch (e) {
+        } catch {
             console.log('⚠️ deudas_cajas table might not exist locally yet');
         }
 
@@ -206,7 +206,7 @@ export async function syncFromSupabase() {
                 await db.deudas_terceros.bulkAdd(deudasTerceros);
                 console.log(`✅ Synced ${deudasTerceros.length} deudas_terceros`);
             }
-        } catch (e) {
+        } catch {
             console.log('⚠️ deudas_terceros table might not exist locally yet');
         }
 
@@ -218,8 +218,14 @@ export async function syncFromSupabase() {
     }
 }
 
-// Recalculate all caja balances from transactions
-async function recalculateCajaBalances() {
+// Recalcula los saldos de todas las cajas a partir de las transacciones.
+//
+// Esta es la única fuente de verdad real de un saldo: la suma del histórico.
+// Hoy `cajas.saldo_actual` se muta de forma incremental desde cinco sitios
+// distintos, así que los saldos derivan. Esta función existía pero nunca se
+// llamaba; se exporta para poder reconciliar a mano mientras la fase de
+// arquitectura convierte el saldo en un valor derivado.
+export async function recalculateCajaBalances() {
     console.log('🔄 Recalculating caja balances...');
 
     const transacciones = await db.transacciones.toArray();

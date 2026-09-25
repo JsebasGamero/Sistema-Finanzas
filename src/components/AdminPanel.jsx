@@ -112,8 +112,48 @@ export default function AdminPanel() {
         setShowForm(true);
     }
 
-    function handleDelete(item) {
-        setDeleteConfirm(item);
+    // Qué apunta a cada entidad maestra. Borrar sin mirar esto dejaba
+    // transacciones huérfanas (en Supabase la FK es ON DELETE SET NULL), y el
+    // total de cajas dejaba de cuadrar con ingresos − egresos sin ningún aviso.
+    const REFERENCIAS = {
+        empresas: [
+            { tabla: 'cajas', campos: ['empresa_id'], etiqueta: 'caja(s)' },
+            { tabla: 'proyectos', campos: ['empresa_id'], etiqueta: 'proyecto(s)' },
+            { tabla: 'deudas_terceros', campos: ['empresa_id'], etiqueta: 'deuda(s) a terceros' }
+        ],
+        cajas: [
+            { tabla: 'transacciones', campos: ['caja_origen_id', 'caja_destino_id'], etiqueta: 'movimiento(s)' },
+            { tabla: 'deudas_cajas', campos: ['caja_deudora_id', 'caja_acreedora_id'], etiqueta: 'deuda(s) entre cajas' }
+        ],
+        proyectos: [
+            { tabla: 'transacciones', campos: ['proyecto_id'], etiqueta: 'movimiento(s)' },
+            { tabla: 'deudas_terceros', campos: ['proyecto_id'], etiqueta: 'deuda(s) a terceros' }
+        ],
+        terceros: [
+            { tabla: 'transacciones', campos: ['tercero_id'], etiqueta: 'movimiento(s)' },
+            { tabla: 'deudas_terceros', campos: ['tercero_id'], etiqueta: 'deuda(s) a terceros' }
+        ]
+    };
+
+    async function contarReferencias(entidad, id) {
+        const conteos = [];
+        for (const ref of (REFERENCIAS[entidad] || [])) {
+            const tabla = db[ref.tabla];
+            if (!tabla) continue;
+            try {
+                const filas = await tabla.toArray();
+                const n = filas.filter(f => ref.campos.some(campo => f[campo] === id)).length;
+                if (n > 0) conteos.push(`${n} ${ref.etiqueta}`);
+            } catch (error) {
+                console.error(`No se pudieron contar referencias en ${ref.tabla}:`, error);
+            }
+        }
+        return conteos;
+    }
+
+    async function handleDelete(item) {
+        const referencias = await contarReferencias(activeEntity, item.id);
+        setDeleteConfirm({ ...item, _referencias: referencias });
     }
 
     async function confirmDelete() {
@@ -145,8 +185,13 @@ export default function AdminPanel() {
             const now = new Date().toISOString();
 
             // Parse numeric fields from form inputs (HTML returns strings)
+            //
+            // 'nit' NO va aquí: es TEXT UNIQUE en Supabase y los NIT colombianos
+            // llevan puntos y dígito de verificación ("900.123.456-7").
+            // parseFloat lo convertía en 900.123, corrompiendo el dato y
+            // provocando choques contra la restricción UNIQUE.
             const parsedData = { ...formData };
-            const numericFields = ['saldo_actual', 'presupuesto_estimado', 'nit'];
+            const numericFields = ['saldo_actual', 'presupuesto_estimado'];
             for (const field of numericFields) {
                 if (parsedData[field] !== undefined && parsedData[field] !== '') {
                     parsedData[field] = parseFloat(parsedData[field]) || 0;
@@ -450,8 +495,14 @@ export default function AdminPanel() {
             <ConfirmModal
                 isOpen={!!deleteConfirm}
                 title="Eliminar registro"
-                message={`¿Estás seguro de eliminar "${deleteConfirm?.nombre}"? Esta acción no se puede deshacer.`}
-                confirmText="Sí, eliminar"
+                message={
+                    deleteConfirm?._referencias?.length
+                        ? `"${deleteConfirm.nombre}" está en uso por ${deleteConfirm._referencias.join(' y ')}. ` +
+                          'Si lo eliminas, esos registros quedarán sin referencia y los totales dejarán de cuadrar. ' +
+                          'Esta acción no se puede deshacer.'
+                        : `¿Estás seguro de eliminar "${deleteConfirm?.nombre}"? Esta acción no se puede deshacer.`
+                }
+                confirmText={deleteConfirm?._referencias?.length ? 'Eliminar de todas formas' : 'Sí, eliminar'}
                 cancelText="Cancelar"
                 type="danger"
                 onConfirm={confirmDelete}

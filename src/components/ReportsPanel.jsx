@@ -28,6 +28,7 @@ import {
     Image as ImageIcon
 } from 'lucide-react';
 import { db } from '../services/db';
+import { resolverNombreCategoria } from '../services/categorias';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import ImagePreviewModal from './ImagePreviewModal';
@@ -71,7 +72,6 @@ export default function ReportsPanel() {
     const [filterCaja, setFilterCaja] = useState('');
     const [filterProyecto, setFilterProyecto] = useState('');
     const [filterTercero, setFilterTercero] = useState('');
-    const [filterEmpresa, setFilterEmpresa] = useState('');
     const [filterUsuario, setFilterUsuario] = useState('');
     const [showFilters, setShowFilters] = useState(false);
 
@@ -106,7 +106,7 @@ export default function ReportsPanel() {
                 try {
                     const deudas = await db.deudas_terceros.toArray();
                     setDeudasTerceros(deudas || []);
-                } catch (e) {
+                } catch {
                     setDeudasTerceros([]);
                 }
             }
@@ -116,7 +116,7 @@ export default function ReportsPanel() {
                 try {
                     const deudasC = await db.deudas_cajas.toArray();
                     setDeudasCajas(deudasC || []);
-                } catch (e) {
+                } catch {
                     setDeudasCajas([]);
                 }
             }
@@ -162,9 +162,7 @@ export default function ReportsPanel() {
     }
 
     function getCategoryName(catId) {
-        if (!catId) return '-';
-        if (!catId.includes('-')) return catId;
-        return categorias.find(c => c.id === catId)?.nombre || catId;
+        return resolverNombreCategoria(catId, categorias, '-');
     }
 
     // Filter transactions
@@ -654,7 +652,6 @@ export default function ReportsPanel() {
             {activeReport === 'cajas' && (
                 <CajasReport
                     cajas={cajas}
-                    empresas={empresas}
                     formatMoney={formatMoney}
                     getEmpresaName={getEmpresaName}
                 />
@@ -1090,7 +1087,7 @@ function ProveedoresReport({ providerBalances, deudasTerceros, terceros, formatM
 
 
 // Cajas Report Component
-function CajasReport({ cajas, empresas, formatMoney, getEmpresaName }) {
+function CajasReport({ cajas, formatMoney, getEmpresaName }) {
     const totalPositivo = cajas.filter(c => parseFloat(c.saldo_actual) > 0).reduce((s, c) => s + (parseFloat(c.saldo_actual) || 0), 0);
     const totalNegativo = cajas.filter(c => parseFloat(c.saldo_actual) < 0).reduce((s, c) => s + (parseFloat(c.saldo_actual) || 0), 0);
 
@@ -1392,7 +1389,7 @@ function ResumenReport({ stats, formatMoney, transacciones }) {
                                     outerRadius={80}
                                     paddingAngle={2}
                                     dataKey="value"
-                                    label={({ cx, cy, midAngle, innerRadius, outerRadius, percent, name }) => {
+                                    label={({ cx, cy, midAngle, outerRadius, percent, name }) => {
                                         const RADIAN = Math.PI / 180;
                                         const radius = outerRadius + 25;
                                         const x = cx + radius * Math.cos(-midAngle * RADIAN);

@@ -4,6 +4,7 @@ import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, themeQuartz } from 'ag-grid-community';
 import { Download, FileSpreadsheet, Table2, ChevronDown, Filter, BarChart3, Wallet, Building2, FolderOpen, Users, FileText, ArrowLeftRight, Calendar, Tag, Landmark, User, FolderKanban, CheckCircle, Clock } from 'lucide-react';
 import { db } from '../services/db';
+import { resolverNombreCategoria } from '../services/categorias';
 import * as XLSX from 'xlsx';
 
 // Register AG-Grid modules
@@ -51,6 +52,8 @@ export default function TablaReport() {
     const [tercerosMap, setTercerosMap] = useState({});
     const [empresasMap, setEmpresasMap] = useState({});
     const [categoriasMap, setCategoriasMap] = useState({});
+    // Filas completas: el resolver de categorías necesita {id, nombre}, no el mapa.
+    const [categoriasRows, setCategoriasRows] = useState([]);
 
     // Load lookup data
     useEffect(() => {
@@ -67,16 +70,14 @@ export default function TablaReport() {
             setTercerosMap(Object.fromEntries(terceros.map(t => [t.id, t.nombre])));
             setEmpresasMap(Object.fromEntries(empresas.map(e => [e.id, e.nombre])));
             setCategoriasMap(Object.fromEntries(categorias.map(c => [c.id, c.nombre])));
+            setCategoriasRows(categorias);
         }
         loadLookups();
     }, []);
 
-    // Resolve category name (could be UUID or plain text)
+    // Resuelve el nombre de la categoría (nombre nuevo o UUID legacy)
     function getCategoryName(catId) {
-        if (!catId) return '';
-        if (categoriasMap[catId]) return categoriasMap[catId];
-        if (!catId.includes('-')) return catId;
-        return catId;
+        return resolverNombreCategoria(catId, categoriasRows, '');
     }
 
     // Load data based on selected source

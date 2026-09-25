@@ -15,7 +15,7 @@ import {
     DollarSign
 } from 'lucide-react';
 import { db } from '../services/db';
-import syncService from '../services/syncService';
+import { resolverNombreCategoria } from '../services/categorias';
 import { addToSyncQueue, processSyncQueue } from '../services/syncService';
 import ConfirmModal from './ConfirmModal';
 import TransactionEditModal from './TransactionEditModal';
@@ -220,24 +220,11 @@ export default function ProjectDashboard() {
         });
     }
 
-    function formatFullDate(dateStr) {
-        if (!dateStr) return '';
-        // Parse as local date to avoid timezone offset
-        const parts = dateStr.split('T')[0].split('-');
-        const date = new Date(parts[0], parts[1] - 1, parts[2]);
-        return date.toLocaleDateString('es-CO', {
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric'
-        });
-    }
 
     function getCategoryName(catId) {
-        if (!catId) return '';
-        // Check if it's a legacy string category
-        if (!catId.includes('-')) return catId;
-        const cat = stats.categorias.find(c => c.id === catId);
-        return cat ? cat.nombre : catId;
+        // Antes esto devolvía el UUID crudo cuando no lo encontraba, y el
+        // heurístico `includes('-')` fallaba con nombres como "Pre-pago".
+        return resolverNombreCategoria(catId, stats.categorias, '');
     }
 
     // Transaction row component

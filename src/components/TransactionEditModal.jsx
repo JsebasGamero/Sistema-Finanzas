@@ -5,6 +5,7 @@ import { db, generateUUID } from '../services/db';
 import { addToSyncQueue, processSyncQueue } from '../services/syncService';
 import AutocompleteInput from './AutocompleteInput';
 import { useAuth } from '../context/AuthContext';
+import { TIPO_CATEGORIA_POR_DEFECTO } from '../services/categorias';
 export default function TransactionEditModal({
     isOpen,
     transaction,
@@ -17,6 +18,7 @@ export default function TransactionEditModal({
     const [proyectos, setProyectos] = useState([]);
     const [terceros, setTerceros] = useState([]);
     const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
 
     const [categorias, setCategorias] = useState([]);
 
@@ -90,7 +92,7 @@ export default function TransactionEditModal({
         const newCategoria = {
             id: generateUUID(),
             nombre: nombre,
-            tipo: 'general',
+            tipo: TIPO_CATEGORIA_POR_DEFECTO,
             created_at: new Date().toISOString()
         };
 
@@ -136,7 +138,8 @@ export default function TransactionEditModal({
             id: generateUUID(),
             nombre: nombre,
             empresa_id: formData.empresa_id || null, // Link to current company if selected
-            estado: 'ACTIVO',
+            // 'ACTIVO' violaba CHECK (estado IN ('Activo','Pausado','Finalizado'))
+            estado: 'Activo',
             presupuesto_estimado: 0,
             created_at: new Date().toISOString()
         };
@@ -156,6 +159,20 @@ export default function TransactionEditModal({
         e.preventDefault();
         if (!formData.monto || !formData.caja_origen_id) return;
 
+        // Misma regla que en el alta: sin caja destino, una transferencia resta
+        // del origen y no suma en ningún lado.
+        if (formData.tipo_movimiento === 'TRANSFERENCIA') {
+            if (!formData.caja_destino_id) {
+                setError('Una transferencia necesita caja destino.');
+                return;
+            }
+            if (formData.caja_destino_id === formData.caja_origen_id) {
+                setError('La caja origen y la caja destino deben ser diferentes.');
+                return;
+            }
+        }
+        setError('');
+
         setSaving(true);
         try {
             await onSave({
@@ -164,9 +181,9 @@ export default function TransactionEditModal({
                 editado_por: currentUser?.nombre || 'Desconocido'
             });
             onClose();
-        } catch (error) {
-            console.error('Error saving:', error);
-            alert('Error al guardar');
+        } catch (err) {
+            console.error('Error saving:', err);
+            setError('No se pudo guardar el cambio. Intenta de nuevo.');
         } finally {
             setSaving(false);
         }
@@ -286,7 +303,7 @@ export default function TransactionEditModal({
                             onCreateNew={createNewCategoria}
                             placeholder="Escribir o seleccionar categoría..."
                             displayKey="nombre"
-                            valueKey="id"
+                            valueKey="nombre"
                             createLabel="Crear nueva categoría:"
                             emptyMessage="Sin categorías"
                         />
@@ -336,6 +353,12 @@ export default function TransactionEditModal({
                             placeholder="Detalle del movimiento..."
                         />
                     </div>
+
+                    {error && (
+                        <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-red-400 text-sm">
+                            {error}
+                        </div>
+                    )}
 
                     {/* Buttons */}
                     <div className="flex gap-3 pt-4">

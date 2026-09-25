@@ -20,6 +20,7 @@ import { db, generateUUID } from '../services/db';
 import { addToSyncQueue, processSyncQueue } from '../services/syncService';
 import AutocompleteInput from './AutocompleteInput';
 import { useAuth } from '../context/AuthContext';
+import { restarMontos, estadoDeuda } from '../services/dinero';
 
 export default function DeudaTercerosPanel({ onDebtChanged }) {
     const { currentUser } = useAuth();
@@ -75,7 +76,7 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
                 try {
                     const deudasData = await db.deudas_terceros.toArray();
                     setDeudas(deudasData || []);
-                } catch (e) {
+                } catch {
                     console.log('Deudas terceros table may not have data yet');
                     setDeudas([]);
                 }
@@ -270,8 +271,10 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
             if (!confirmar) return;
         }
 
-        const newMontoPendiente = deuda.monto_pendiente - amount;
-        const newEstado = newMontoPendiente === 0 ? 'PAGADA' : 'PARCIAL';
+        // Antes: `=== 0` sobre flotantes. Un residuo de 1e-8 al abonar la
+        // totalidad dejaba la deuda en PARCIAL para siempre.
+        const newMontoPendiente = restarMontos(deuda.monto_pendiente, amount);
+        const newEstado = estadoDeuda(newMontoPendiente, deuda.monto_original);
         const pagos = [...(deuda.pagos || []), {
             monto: amount,
             fecha: new Date().toISOString(),
@@ -306,7 +309,9 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
                 caja_origen_id: paymentData.cajaId,
                 caja_destino_id: null,
                 tercero_id: deuda.tercero_id,
-                empresa_id: deuda.empresa_id || null,
+                // Sin empresa_id: la tabla `transacciones` no tiene esa columna.
+                // Se escribía solo en IndexedDB y se perdía en el primer pull.
+                // La empresa se deduce de la caja o del proyecto.
                 sincronizado: false,
                 usuario_nombre: currentUser?.nombre || 'Desconocido',
                 created_at: new Date().toISOString()

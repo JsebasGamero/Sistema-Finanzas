@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS deudas_cajas (
   monto_pendiente NUMERIC NOT NULL DEFAULT 0,
   fecha_prestamo DATE DEFAULT CURRENT_DATE,
   estado TEXT DEFAULT 'PENDIENTE' CHECK (estado IN ('PENDIENTE', 'PARCIAL', 'PAGADA')),
+  descripcion TEXT, -- Concepto del préstamo (lo pide el formulario de la app)
   pagos JSONB DEFAULT '[]',
   usuario_nombre TEXT, -- Nombre del usuario que registró
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
