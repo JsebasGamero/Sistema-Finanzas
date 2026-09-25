@@ -267,7 +267,7 @@ export default function ProjectDashboard() {
                         )}
                     </div>
                     {showActions && (
-                        <div className="flex items-center gap-0.5 ml-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className={"flex items-center gap-0.5 ml-1 transition-opacity opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100"}>
                             <button
                                 onClick={() => setEditingTransaction(t)}
                                 className="p-2 text-gray-500 hover:text-gold transition-colors rounded-lg hover:bg-white/5"

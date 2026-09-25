@@ -127,7 +127,9 @@ body {
   transition: transform var(--transition-smooth),
     box-shadow var(--transition-smooth),
     border-color var(--transition-smooth);
-  margin-top: 20px;
+  /* Sin margin-top global: sumaba 20px a cada tarjeta, incluida la primera
+     fila de cada grid, y descuadraba el ritmo vertical de todas las pantallas.
+     El espaciado lo deciden los contenedores (space-y-*, gap). */
 }
 
 @media (min-width: 768px) {
@@ -244,7 +246,8 @@ body {
   border-radius: var(--radius-md);
   padding: 13px 16px;
   color: var(--text-primary);
-  font-size: 15px;
+  /* 16px en movil: por debajo de eso iOS Safari hace zoom al enfocar. */
+  font-size: 16px;
   width: 100%;
   transition: border-color var(--transition-fast),
     box-shadow var(--transition-fast),
@@ -261,6 +264,12 @@ body {
 
 .input-field::placeholder {
   color: var(--text-muted);
+}
+
+@media (min-width: 1024px) {
+  .input-field {
+    font-size: 15px;
+  }
 }
 
 /* Select fields */

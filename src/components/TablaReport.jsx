@@ -540,7 +540,7 @@ export default function TablaReport() {
             </div>
 
             {/* AG-Grid Table - using autoHeight so it sizes based on rows */}
-            <div style={{ width: '100%', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <div className="w-full min-w-0 max-w-full overflow-x-auto" style={{ borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
                 <AgGridReact
                     ref={gridRef}
                     theme={darkTheme}

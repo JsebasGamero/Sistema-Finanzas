@@ -656,7 +656,7 @@ export default function TransactionForm({ onTransactionAdded }) {
                                         alt="Soporte preview"
                                         className="w-full h-48 object-cover opacity-80 group-hover:opacity-100 transition-opacity"
                                     />
-                                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <div className={"absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100"}>
                                         <button
                                             type="button"
                                             onClick={() => setSoporteUrl(null)}

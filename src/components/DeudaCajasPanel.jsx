@@ -397,7 +397,7 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
                 <form onSubmit={handleCreateDebt} className="card space-y-3">
                     <h4 className="font-medium text-sm text-gray-400">Registrar Nuevo Préstamo</h4>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label className="label">Caja que Presta</label>
                             <select

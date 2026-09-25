@@ -510,7 +510,7 @@ export default function ReportsPanel() {
 
                     {showFilters && (
                         <div className="card space-y-3">
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            <div className="grid grid-cols-1 min-[420px]:grid-cols-2 sm:grid-cols-3 gap-3">
                                 {/* Date From */}
                                 <div>
                                     <label className="label">Desde</label>
@@ -960,7 +960,7 @@ function ProveedoresReport({ providerBalances, deudasTerceros, terceros, formatM
                     <Users size={18} />
                     Relación con Proveedores / Beneficiarios
                 </h3>
-                <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
                     <div>
                         <p className="text-xs text-gray-500">Total Pagado</p>
                         <p className="text-lg font-bold text-green-400">{formatMoney(stats.totalPagado)}</p>
@@ -1014,7 +1014,7 @@ function ProveedoresReport({ providerBalances, deudasTerceros, terceros, formatM
                             {expandedId === item.id && (
                                 <div className="mt-4 pt-4 border-t border-white/10 space-y-4">
                                     {/* Stats Grid */}
-                                    <div className="grid grid-cols-2 gap-3">
+                                    <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                                         <div className="bg-secondary/50 rounded-lg p-3">
                                             <p className="text-xs text-gray-500">Pagos Directos</p>
                                             <p className="font-bold text-green-400">{formatMoney(item.pagosDirectos)}</p>
@@ -1105,7 +1105,7 @@ function CajasReport({ cajas, formatMoney, getEmpresaName }) {
     return (
         <div className="space-y-4">
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                 <div className="card bg-green-500/10 border-green-500/30">
                     <div className="flex items-center gap-2 text-green-400 mb-1">
                         <TrendingUp size={18} />
@@ -1317,7 +1317,7 @@ function ResumenReport({ stats, formatMoney, transacciones }) {
     return (
         <div className="space-y-4">
             {/* Main Stats */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                 <div className="card">
                     <div className="flex items-center gap-2 text-gray-400 mb-1">
                         <ArrowDownLeft size={16} className="text-green-400" />
@@ -1586,7 +1586,7 @@ function DeudasReport({ deudasTerceros, deudasCajas, terceros, cajas, proyectos,
 
             {/* Summary Cards */}
             {activeTab === 'terceros' && (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                     <div className="card bg-red-500/10 border-red-500/30">
                         <div className="text-xs text-red-400 mb-1">Pendiente a Proveedores</div>
                         <p className="text-lg font-bold text-red-400">{formatMoney(combinedStats.tercerosTotal)}</p>
@@ -1601,7 +1601,7 @@ function DeudasReport({ deudasTerceros, deudasCajas, terceros, cajas, proyectos,
             )}
 
             {activeTab === 'cajas' && (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                     <div className="card bg-blue-500/10 border-blue-500/30">
                         <div className="text-xs text-blue-400 mb-1">Pendiente Entre Cajas</div>
                         <p className="text-lg font-bold text-blue-400">{formatMoney(combinedStats.cajasTotal)}</p>

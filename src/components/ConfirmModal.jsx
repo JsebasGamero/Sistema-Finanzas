@@ -39,7 +39,7 @@ export default function ConfirmModal({
     const Icon = style.icon;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-5">
             {/* Backdrop */}
             <div
                 className="absolute inset-0 bg-black/70 backdrop-blur-md"
@@ -47,7 +47,7 @@ export default function ConfirmModal({
             />
 
             {/* Modal */}
-            <div className="relative w-full max-w-md animate-fade-in"
+            <div className="relative w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto animate-fade-in"
                 style={{
                     background: 'linear-gradient(145deg, rgba(26,37,64,0.95) 0%, rgba(19,28,49,0.9) 100%)',
                     backdropFilter: 'blur(16px)',
@@ -64,7 +64,7 @@ export default function ConfirmModal({
                 </button>
 
                 {/* Content */}
-                <div className="p-7">
+                <div className="p-5 sm:p-7">
                     {/* Icon */}
                     <div className={`w-14 h-14 rounded-2xl ${style.iconBg} flex items-center justify-center mx-auto mb-5`}>
                         <Icon size={26} className={style.iconColor} />

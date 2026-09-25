@@ -61,11 +61,11 @@ export default function LoginScreen({ onLogin }) {
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center p-5"
+        <div className="h-full overflow-y-auto flex items-center justify-center p-5"
             style={{
                 background: 'radial-gradient(ellipse at 50% 0%, rgba(245,166,35,0.06) 0%, var(--bg-primary) 60%)'
             }}>
-            <div className="w-full max-w-[420px] animate-fade-in">
+            <div className="w-full max-w-[420px] animate-fade-in my-auto">
                 {/* Logo */}
                 <div className="text-center mb-10">
                     <div className="inline-flex items-center justify-center w-[72px] h-[72px] rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 mb-5 animate-glow"

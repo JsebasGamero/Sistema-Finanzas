@@ -417,7 +417,7 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
 
             {/* Summary Cards */}
             {stats.totalPending > 0 && (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                     <div className="card bg-red-500/10 border-red-500/30">
                         <div className="flex items-center gap-2 text-red-400 mb-1">
                             <AlertCircle size={16} />
@@ -498,7 +498,7 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
                         />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                         <div>
                             <label className="label">Empresa</label>
                             <select
@@ -527,7 +527,7 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                         <div>
                             <label className="label">Monto de la Deuda *</label>
                             <div className="relative">
@@ -665,7 +665,7 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
                                     {deuda.estado !== 'PAGADA' && (
                                         showPaymentForm === deuda.id ? (
                                             <div className="space-y-2 bg-green-500/10 p-3 rounded-lg">
-                                                <div className="flex gap-2">
+                                                <div className="flex flex-col sm:flex-row gap-2">
                                                     <div className="flex-1">
                                                         <input
                                                             type="text"

@@ -371,7 +371,7 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                 )}
 
                 {/* Content area – Scrollable */}
-                <main className="flex-1 overflow-y-auto mobile-scroll p-4 sm:p-5 md:p-6 lg:p-8 pb-24 lg:pb-8">
+                <main className="flex-1 overflow-y-auto mobile-scroll p-4 sm:p-5 md:p-6 lg:p-8">
                     <div className="max-w-7xl mx-auto">
                         {children}
                     </div>
@@ -380,7 +380,7 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                 {/* Mobile Bottom Navigation */}
                 <nav className="flex-shrink-0 bg-secondary lg:hidden safe-area-bottom"
                     style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                    <div className="flex justify-around px-1 py-2">
+                    <div className="flex px-1 py-1.5">
                         {tabs.map((tab) => {
                             const Icon = tab.icon;
                             const isActive = activeTab === tab.id;
@@ -388,7 +388,7 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                                 <button
                                     key={tab.id}
                                     onClick={() => setActiveTab(tab.id)}
-                                    className={`flex flex-col items-center gap-0.5 py-1.5 px-3 rounded-xl touch-target transition-all
+                                    className={`flex-1 min-w-0 flex flex-col items-center gap-0.5 py-1.5 px-1 rounded-xl touch-target transition-all
                                         ${isActive
                                             ? 'text-gold'
                                             : 'text-gray-500 hover:text-white'
@@ -398,7 +398,7 @@ export default function Layout({ children, activeTab, setActiveTab, pendingSync,
                                     } : undefined}
                                 >
                                     <Icon size={21} strokeWidth={isActive ? 2.2 : 1.7} />
-                                    <span className="text-[10px] font-semibold">{tab.label}</span>
+                                    <span className="text-[10px] font-semibold truncate max-w-full">{tab.label}</span>
                                 </button>
                             );
                         })}
