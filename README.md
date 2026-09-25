@@ -33,22 +33,20 @@ npm run dev
 - **Préstamos entre Cajas**: Rastreo de deudas entre cajas
 - **Categorías**: Nómina, Materiales, Viáticos, ACPM, etc.
 
-## 📁 Estructura
+## Documentación
 
-```
-src/
-├── components/
-│   ├── Layout.jsx          # Navegación
-│   ├── TransactionForm.jsx # Formulario transacciones
-│   ├── CajaList.jsx        # Lista de cajas
-│   └── ProjectDashboard.jsx# Dashboard
-├── services/
-│   ├── db.js               # IndexedDB (Dexie)
-│   ├── supabase.js         # Cliente Supabase
-│   └── syncService.js      # Sincronización
-└── hooks/
-    └── useOnlineStatus.js  # Detector online/offline
-```
+| Archivo | Contenido |
+|---|---|
+| [CLAUDE.md](CLAUDE.md) | Guía del proyecto: comandos, invariantes, convenciones, definición de terminado |
+| [docs/DOMINIO.md](docs/DOMINIO.md) | Reglas de negocio: movimientos, saldos, deudas |
+| [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md) | Arquitectura actual y objetivo (Clean Architecture) |
+| [docs/SINCRONIZACION.md](docs/SINCRONIZACION.md) | Modelo offline y sincronización con Supabase |
+| [docs/BACKLOG.md](docs/BACKLOG.md) | Bugs conocidos y fases del plan |
+| [docs/ORQUESTACION.md](docs/ORQUESTACION.md) | Trabajo con agentes de Claude Code |
+| [docs/decisiones/](docs/decisiones/) | Decisiones de diseño (ADR) |
+
+Las migraciones de base de datos están en `supabase/migrations/` y se ejecutan
+en orden desde el SQL Editor de Supabase.
 
 ## 🔧 Tecnologías
 

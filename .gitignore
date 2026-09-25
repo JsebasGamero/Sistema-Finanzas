@@ -34,3 +34,6 @@ android/build/
 android/.gradle/
 android/app/src/main/assets/public/
 android/local.properties
+
+# Claude Code: configuracion personal (la compartida si se versiona)
+.claude/settings.local.json
