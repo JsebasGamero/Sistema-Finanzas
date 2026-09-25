@@ -2,6 +2,7 @@
 import Dexie from 'dexie';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { NOMBRE_BASE_LOCAL } from './entorno';
+import { efectoEnSaldos } from '../domain/rules/efectoEnSaldos';
 
 // Una base local por entorno (ver services/entorno.js). Producción conserva
 // el nombre histórico para no perder datos de dispositivos ya instalados.
@@ -228,6 +229,10 @@ export async function syncFromSupabase() {
 // distintos, así que los saldos derivan. Esta función existía pero nunca se
 // llamaba; se exporta para poder reconciliar a mano mientras la fase de
 // arquitectura convierte el saldo en un valor derivado.
+// ADVERTENCIA (bug C23): esta función pone en 0 cualquier saldo inicial que
+// no venga de una transacción (p. ej. el saldo con el que AdminPanel crea una
+// caja). Nadie debe empezar a llamarla; sigue sin uso a propósito hasta que
+// se resuelva eso. No la conectes a ningún flujo sin revisar docs/BACKLOG.md.
 export async function recalculateCajaBalances() {
     console.log('🔄 Recalculating caja balances...');
 
@@ -238,20 +243,11 @@ export async function recalculateCajaBalances() {
     const balances = {};
     cajas.forEach(c => balances[c.id] = 0);
 
-    // Calculate from transactions
+    // Calculate from transactions (misma regla de dominio que usa syncService)
     transacciones.forEach(t => {
-        if (t.tipo_movimiento === 'INGRESO' && t.caja_origen_id) {
-            balances[t.caja_origen_id] = (balances[t.caja_origen_id] || 0) + t.monto;
-        } else if (t.tipo_movimiento === 'EGRESO' && t.caja_origen_id) {
-            balances[t.caja_origen_id] = (balances[t.caja_origen_id] || 0) - t.monto;
-        } else if (t.tipo_movimiento === 'TRANSFERENCIA') {
-            if (t.caja_origen_id) {
-                balances[t.caja_origen_id] = (balances[t.caja_origen_id] || 0) - t.monto;
-            }
-            if (t.caja_destino_id) {
-                balances[t.caja_destino_id] = (balances[t.caja_destino_id] || 0) + t.monto;
-            }
-        }
+        efectoEnSaldos(t).forEach(({ cajaId, delta }) => {
+            balances[cajaId] = (balances[cajaId] || 0) + delta;
+        });
     });
 
     // Update each caja with calculated balance

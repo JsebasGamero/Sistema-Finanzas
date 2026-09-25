@@ -1,15 +1,18 @@
 // Sync service - handles offline/online synchronization
 import { db, generateUUID } from './db';
 import { supabase, isSupabaseConfigured } from './supabase';
+import { crearOutboxDexie } from '../infrastructure/sync/outboxDexie';
+import { crearAplicadorDeAjustesDexie } from '../infrastructure/dexie/aplicadorDeAjustesDexie';
+import { efectoEnSaldos, efectoDeBorrado } from '../domain/rules/efectoEnSaldos';
+
+// Única implementación del registro que se encola: el resto de este archivo
+// (y quien lo use) pasa por aquí para no duplicar la forma de la fila.
+const outbox = crearOutboxDexie(db);
+const aplicadorDeAjustes = crearAplicadorDeAjustesDexie({ db, outbox });
 
 // Add operation to sync queue (for offline mode)
 export async function addToSyncQueue(tabla, operacion, datos) {
-    await db.sync_queue.add({
-        tabla,
-        operacion, // 'INSERT', 'UPDATE', 'DELETE'
-        datos: JSON.stringify(datos),
-        timestamp: new Date().toISOString()
-    });
+    await outbox.encolar(tabla, operacion, datos);
 }
 
 
@@ -257,7 +260,9 @@ function prepareForSupabase(data, tabla = 'transacciones') {
     return result;
 }
 
-// Create transaction with offline support
+/**
+ * @deprecated usar los casos de uso de src/application/movimientos vía src/app/contenedor.js
+ */
 export async function createTransaction(transactionData) {
     const id = generateUUID();
     const now = new Date().toISOString();
@@ -272,19 +277,10 @@ export async function createTransaction(transactionData) {
     // Save to local IndexedDB
     await db.transacciones.add(transaction);
 
-    // Update caja balances locally
-    if (transactionData.tipo_movimiento === 'INGRESO' && transactionData.caja_origen_id) {
-        await updateCajaBalance(transactionData.caja_origen_id, transactionData.monto);
-    } else if (transactionData.tipo_movimiento === 'EGRESO' && transactionData.caja_origen_id) {
-        await updateCajaBalance(transactionData.caja_origen_id, -transactionData.monto);
-    } else if (transactionData.tipo_movimiento === 'TRANSFERENCIA') {
-        if (transactionData.caja_origen_id) {
-            await updateCajaBalance(transactionData.caja_origen_id, -transactionData.monto);
-        }
-        if (transactionData.caja_destino_id) {
-            await updateCajaBalance(transactionData.caja_destino_id, transactionData.monto);
-        }
-    }
+    // Update caja balances locally (regla única de dominio, ver
+    // docs/DOMINIO.md); los UPDATE de caja quedan encolados antes del
+    // INSERT de la transacción, como exige el orden de la cola.
+    await aplicadorDeAjustes.aplicar(efectoEnSaldos(transaction), { payload: 'parcial' });
 
     // Add to sync queue
     await addToSyncQueue('transacciones', 'INSERT', transaction);
@@ -297,21 +293,6 @@ export async function createTransaction(transactionData) {
     }
 
     return transaction;
-}
-
-// Update caja balance locally
-// Update caja balance locally and queue for sync
-async function updateCajaBalance(cajaId, amount) {
-    const caja = await db.cajas.get(cajaId);
-    if (caja) {
-        const newBalance = (parseFloat(caja.saldo_actual) || 0) + amount;
-
-        // Update local DB
-        await db.cajas.update(cajaId, { saldo_actual: newBalance });
-
-        // Add to sync queue
-        await addToSyncQueue('cajas', 'UPDATE', { id: cajaId, saldo_actual: newBalance });
-    }
 }
 
 // Get pending sync count
@@ -378,7 +359,9 @@ export async function forceSync() {
     return await processSyncQueue();
 }
 
-// Update transaction with offline support
+/**
+ * @deprecated usar los casos de uso de src/application/movimientos vía src/app/contenedor.js
+ */
 export async function updateTransaction(id, updateData) {
     const original = await db.transacciones.get(id);
     if (!original) return null;
@@ -397,23 +380,14 @@ export async function updateTransaction(id, updateData) {
     return updatedTransaction;
 }
 
-// Delete transaction with offline support (reverses caja balances)
+/**
+ * @deprecated usar los casos de uso de src/application/movimientos vía src/app/contenedor.js
+ */
 export async function deleteTransaction(transactionData) {
     const t = transactionData;
 
-    // Reverse the balance changes locally
-    if (t.tipo_movimiento === 'INGRESO' && t.caja_origen_id) {
-        await updateCajaBalanceWithSync(t.caja_origen_id, -t.monto);
-    } else if (t.tipo_movimiento === 'EGRESO' && t.caja_origen_id) {
-        await updateCajaBalanceWithSync(t.caja_origen_id, t.monto);
-    } else if (t.tipo_movimiento === 'TRANSFERENCIA') {
-        if (t.caja_origen_id) {
-            await updateCajaBalanceWithSync(t.caja_origen_id, t.monto);
-        }
-        if (t.caja_destino_id) {
-            await updateCajaBalanceWithSync(t.caja_destino_id, -t.monto);
-        }
-    }
+    // Reverse the balance changes locally (regla única de dominio)
+    await aplicadorDeAjustes.aplicar(efectoDeBorrado(t), { payload: 'parcial' });
 
     // Delete from local DB
     await db.transacciones.delete(t.id);
@@ -424,19 +398,6 @@ export async function deleteTransaction(transactionData) {
     // Try to sync immediately if online
     if (navigator.onLine) {
         await processSyncQueue();
-    }
-}
-
-// Update caja balance with sync queue support
-async function updateCajaBalanceWithSync(cajaId, amount) {
-    if (!cajaId) return;
-    const caja = await db.cajas.get(cajaId);
-    if (caja) {
-        const newBalance = (caja.saldo_actual || 0) + amount;
-        await db.cajas.update(cajaId, { saldo_actual: newBalance });
-
-        // Add balance update to sync queue
-        await addToSyncQueue('cajas', 'UPDATE', { id: cajaId, saldo_actual: newBalance });
     }
 }
 
