@@ -18,9 +18,10 @@ Lee esto entero antes de tocar código. Los detalles están en `docs/`.
 ## Comandos
 
 ```bash
-npm run dev      # servidor de desarrollo, puerto 5173
-npm run build    # build de producción; debe pasar antes de cada commit
-npm run lint     # ESLint sobre src/ (android/ y dist/ están ignorados)
+npm run dev            # desarrollo, puerto 5173, contra Supabase de DESARROLLO
+npm run build          # build de producción; debe pasar antes de cada commit
+npm run build:staging  # build de pruebas (usa .env.staging.local)
+npm run lint           # ESLint sobre src/ (android/ y dist/ están ignorados)
 ```
 
 No hay suite de tests todavía. Se agrega Vitest al empezar la Fase 3
@@ -35,6 +36,7 @@ lint sin errores nuevos, y comprobación en el navegador (skill
 | `docs/DOMINIO.md` | Glosario y reglas de negocio. Qué hace cada tipo de movimiento con los saldos. |
 | `docs/ARQUITECTURA.md` | Arquitectura actual, arquitectura objetivo (Clean Architecture) y cómo migrar. |
 | `docs/SINCRONIZACION.md` | Modelo offline: cola de sync, pull, códigos de error, invariantes. |
+| `docs/ENTORNOS.md` | Desarrollo vs. producción: credenciales, candado, flujo de migraciones. |
 | `docs/BACKLOG.md` | Bugs de la auditoría y fases del plan, con estado. **Fuente de verdad del trabajo pendiente.** |
 | `docs/ORQUESTACION.md` | Cómo se reparte el trabajo entre agentes. |
 | `docs/decisiones/` | ADRs: decisiones de diseño y por qué se tomaron. |
@@ -64,8 +66,12 @@ Cada una tiene su historia en `docs/BACKLOG.md`.
 7. **Una TRANSFERENCIA siempre tiene caja origen y caja destino distintas.**
 8. **Las políticas RLS son solo para `authenticated`.** Nunca `USING (true)`
    sin rol: la anon key es pública.
-9. **Nada de credenciales en el repo.** `.env` está ignorado; `.env.example`
-   solo lleva placeholders.
+9. **Nada de credenciales en el repo.** Los `.env*.local` están ignorados;
+   `.env.example` solo lleva placeholders.
+10. **Desarrollo nunca apunta a producción.** Las pruebas se hacen con
+    `npm run dev` contra el proyecto Supabase de desarrollo. No desactives el
+    candado de `src/services/entorno.js` ni crees un `.env` a secas con
+    credenciales de producción. Ver `docs/ENTORNOS.md`.
 
 ## Deuda conocida que todavía está viva
 
@@ -122,5 +128,6 @@ Detalle completo en `docs/ORQUESTACION.md`.
 - No se inician sesiones en la app con credenciales reales. Lo que está
   detrás del login lo verifica una persona; decirlo en el resumen.
 - No se ejecutan migraciones contra Supabase: se escriben y la persona las
-  corre en el SQL Editor.
+  corre en el SQL Editor, primero en desarrollo y después en producción.
+- No se leen ni se imprimen los archivos `.env*.local`.
 - No hacer push ni merge a `main` sin que lo pidan.

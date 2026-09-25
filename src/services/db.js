@@ -1,8 +1,11 @@
 // Database configuration using Dexie.js (IndexedDB wrapper)
 import Dexie from 'dexie';
 import { supabase, isSupabaseConfigured } from './supabase';
+import { NOMBRE_BASE_LOCAL } from './entorno';
 
-export const db = new Dexie('FinanzasConstructora');
+// Una base local por entorno (ver services/entorno.js). Producción conserva
+// el nombre histórico para no perder datos de dispositivos ya instalados.
+export const db = new Dexie(NOMBRE_BASE_LOCAL);
 
 // Define the database schema matching the SQL structure
 db.version(1).stores({

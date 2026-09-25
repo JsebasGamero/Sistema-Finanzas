@@ -18,6 +18,7 @@ Estados: `pendiente` · `en curso` · `hecho` · `hecho (requiere acción manual
 
 ## Acciones manuales pendientes
 
+- [ ] Crear el proyecto Supabase de desarrollo y `.env.development.local` (`docs/ENTORNOS.md`).
 - [ ] Rotar la anon key de Supabase (estuvo en `.env.example` en el historial de git).
 - [ ] Ejecutar `supabase/migrations/001_rls_solo_autenticados.sql`.
 - [ ] Ejecutar `supabase/migrations/002_columnas_faltantes.sql`.
@@ -81,3 +82,12 @@ Estados: `pendiente` · `en curso` · `hecho` · `hecho (requiere acción manual
 | U4 | `style={{}}` con `rgba()` sueltos en vez de tokens | pendiente |
 | U5 | Jerarquía plana: todo es una tarjeta del mismo peso | pendiente |
 | U6 | Flechas unicode mezcladas con iconos lucide | pendiente |
+
+## Entornos
+
+| ID | Descripción | Estado |
+|---|---|---|
+| E1 | Separar desarrollo y producción con candado de entorno | hecho |
+| E2 | Script de semillas con datos de prueba en volumen | pendiente |
+| E3 | `appId` distinto por entorno para tener las dos APK instaladas | pendiente |
+| E4 | Migraciones con Supabase CLI (`db push`) | pendiente |

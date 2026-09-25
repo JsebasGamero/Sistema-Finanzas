@@ -1,6 +1,8 @@
 // Supabase client configuration
-// Las credenciales se leen de .env (ver .env.example). Nunca las escribas aquí.
+// Las credenciales se leen de .env.<modo>.local (ver docs/ENTORNOS.md).
+// Nunca las escribas aquí.
 import { createClient } from '@supabase/supabase-js';
+import { ENTORNO_COHERENTE, describirProblemaDeEntorno } from './entorno';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -14,21 +16,28 @@ const PLACEHOLDERS = [
     'your-anon-key'
 ];
 
-const configured = Boolean(supabaseUrl) && Boolean(supabaseAnonKey) &&
+const credencialesPresentes = Boolean(supabaseUrl) && Boolean(supabaseAnonKey) &&
     !PLACEHOLDERS.includes(supabaseUrl) && !PLACEHOLDERS.includes(supabaseAnonKey);
 
-if (!configured) {
+// Solo se conecta si hay credenciales Y pertenecen al entorno en que corre la
+// app. Esto es lo que impide que `npm run dev` escriba en producción.
+const configured = credencialesPresentes && ENTORNO_COHERENTE;
+
+if (!credencialesPresentes) {
     console.error(
-        'Supabase no está configurado. Copia .env.example a .env y completa ' +
-        'VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY. La app funcionará solo en modo local.'
+        'Supabase no está configurado para este entorno. Crea el archivo ' +
+        `.env.${import.meta.env.MODE}.local a partir de .env.example. ` +
+        'La app funcionará solo en modo local.'
     );
+} else if (!ENTORNO_COHERENTE) {
+    console.error(describirProblemaDeEntorno());
 }
 
 // Se crea el cliente igual (con valores inertes si falta config) para que los
 // imports no exploten; isSupabaseConfigured() decide si se intenta sincronizar.
 export const supabase = createClient(
-    supabaseUrl || 'https://placeholder.supabase.co',
-    supabaseAnonKey || 'placeholder'
+    configured ? supabaseUrl : 'https://placeholder.supabase.co',
+    configured ? supabaseAnonKey : 'placeholder'
 );
 
 // Check if Supabase is properly configured
