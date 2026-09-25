@@ -1,7 +1,7 @@
 // Adaptador de infraestructura: encola operaciones pendientes de sincronizar en Dexie.
-// Reproduce byte a byte el registro que hoy crea addToSyncQueue en
-// src/services/syncService.js. Cuando esa función delegue aquí, no debe
-// cambiar el formato de la fila (ver docs/SINCRONIZACION.md).
+// Es la única implementación del registro de sync_queue: addToSyncQueue
+// (src/services/syncService.js) delega aquí. No cambies el formato de la fila
+// sin migrar las operaciones ya encoladas (ver docs/SINCRONIZACION.md).
 export function crearOutboxDexie(db, { ahora = () => new Date().toISOString() } = {}) {
     return {
         encolar(tabla, operacion, datos) {

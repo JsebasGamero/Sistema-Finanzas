@@ -6,6 +6,7 @@ import { addToSyncQueue, processSyncQueue } from '../services/syncService';
 import AutocompleteInput from './AutocompleteInput';
 import { useAuth } from '../context/AuthContext';
 import { TIPO_CATEGORIA_POR_DEFECTO } from '../services/categorias';
+import { MovimientoInvalidoError } from '../domain/errores';
 export default function TransactionEditModal({
     isOpen,
     transaction,
@@ -183,7 +184,11 @@ export default function TransactionEditModal({
             onClose();
         } catch (err) {
             console.error('Error saving:', err);
-            setError('No se pudo guardar el cambio. Intenta de nuevo.');
+            // Un rechazo de validación (p. ej. monto 0) trae un mensaje que dice
+            // qué corregir; "intenta de nuevo" haría reintentar sin sentido.
+            setError(err instanceof MovimientoInvalidoError
+                ? err.message
+                : 'No se pudo guardar el cambio. Intenta de nuevo.');
         } finally {
             setSaving(false);
         }

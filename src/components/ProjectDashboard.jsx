@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { db } from '../services/db';
 import { resolverNombreCategoria } from '../services/categorias';
-import { addToSyncQueue, processSyncQueue } from '../services/syncService';
+import { editarMovimiento, borrarMovimiento } from '../app/contenedor';
 import ConfirmModal from './ConfirmModal';
 import TransactionEditModal from './TransactionEditModal';
 import ImagePreviewModal from './ImagePreviewModal';
@@ -118,43 +118,7 @@ export default function ProjectDashboard() {
     }
 
     async function handleEditSave(updatedTransaction) {
-        const original = editingTransaction;
-        const now = new Date().toISOString();
-
-        // Calculate balance adjustments
-        // First, reverse the original transaction
-        if (original.tipo_movimiento === 'INGRESO') {
-            await updateCajaBalance(original.caja_origen_id, -original.monto);
-        } else if (original.tipo_movimiento === 'EGRESO') {
-            await updateCajaBalance(original.caja_origen_id, original.monto);
-        } else if (original.tipo_movimiento === 'TRANSFERENCIA') {
-            await updateCajaBalance(original.caja_origen_id, original.monto);
-            await updateCajaBalance(original.caja_destino_id, -original.monto);
-        }
-
-        // Then apply the new transaction
-        if (updatedTransaction.tipo_movimiento === 'INGRESO') {
-            await updateCajaBalance(updatedTransaction.caja_origen_id, updatedTransaction.monto);
-        } else if (updatedTransaction.tipo_movimiento === 'EGRESO') {
-            await updateCajaBalance(updatedTransaction.caja_origen_id, -updatedTransaction.monto);
-        } else if (updatedTransaction.tipo_movimiento === 'TRANSFERENCIA') {
-            await updateCajaBalance(updatedTransaction.caja_origen_id, -updatedTransaction.monto);
-            await updateCajaBalance(updatedTransaction.caja_destino_id, updatedTransaction.monto);
-        }
-
-        // Update the transaction
-        const toUpdate = {
-            ...updatedTransaction,
-            updated_at: now
-        };
-
-        await db.transacciones.update(original.id, toUpdate);
-
-        // Add to sync queue (works offline)
-        await addToSyncQueue('transacciones', 'UPDATE', { id: original.id, ...toUpdate });
-        if (navigator.onLine) {
-            processSyncQueue().catch(err => console.log('Sync error:', err));
-        }
+        await editarMovimiento(editingTransaction, updatedTransaction);
 
         setEditingTransaction(null);
         await loadStats();
@@ -163,41 +127,10 @@ export default function ProjectDashboard() {
     async function handleDelete() {
         if (!deleteConfirm) return;
 
-        const t = deleteConfirm;
-
-        // Reverse the balance changes locally
-        if (t.tipo_movimiento === 'INGRESO') {
-            await updateCajaBalance(t.caja_origen_id, -t.monto);
-        } else if (t.tipo_movimiento === 'EGRESO') {
-            await updateCajaBalance(t.caja_origen_id, t.monto);
-        } else if (t.tipo_movimiento === 'TRANSFERENCIA') {
-            await updateCajaBalance(t.caja_origen_id, t.monto);
-            await updateCajaBalance(t.caja_destino_id, -t.monto);
-        }
-
-        // Delete from local DB
-        await db.transacciones.delete(t.id);
-
-        // Add to sync queue (works offline)
-        await addToSyncQueue('transacciones', 'DELETE', { id: t.id });
-        if (navigator.onLine) {
-            processSyncQueue().catch(err => console.log('Sync error:', err));
-        }
+        await borrarMovimiento(deleteConfirm);
 
         setDeleteConfirm(null);
         await loadStats();
-    }
-
-    async function updateCajaBalance(cajaId, amount) {
-        if (!cajaId) return;
-        const caja = await db.cajas.get(cajaId);
-        if (caja) {
-            const newBalance = (parseFloat(caja.saldo_actual) || 0) + amount;
-            await db.cajas.update(cajaId, { saldo_actual: newBalance });
-
-            // Add to sync queue (works offline)
-            await addToSyncQueue('cajas', 'UPDATE', { id: cajaId, saldo_actual: newBalance });
-        }
     }
 
     function formatMoney(amount) {

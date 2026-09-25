@@ -2,7 +2,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { Save, Camera, ArrowRight, Check, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, CreditCard, Receipt, RefreshCw } from 'lucide-react';
 import { db, generateUUID } from '../services/db';
-import syncService, { addToSyncQueue, processSyncQueue } from '../services/syncService';
+import { addToSyncQueue, processSyncQueue } from '../services/syncService';
+import { registrarMovimiento } from '../app/contenedor';
+import { MovimientoInvalidoError } from '../domain/errores';
 import ConfirmModal from './ConfirmModal';
 import DeudaCajasPanel from './DeudaCajasPanel';
 import DeudaTercerosPanel from './DeudaTercerosPanel';
@@ -283,7 +285,7 @@ export default function TransactionForm({ onTransactionAdded }) {
             // Remove display-only fields before saving
             const { _cajaOrigenNombre, _cajaDestinoNombre, _proyectoNombre, _terceroNombre, ...dataToSave } = pendingTransaction;
 
-            await syncService.createTransaction(dataToSave);
+            await registrarMovimiento(dataToSave);
 
             // Reset form
             setMonto('');
@@ -305,7 +307,11 @@ export default function TransactionForm({ onTransactionAdded }) {
             }
         } catch (error) {
             console.error('Error saving transaction:', error);
-            alert('Error al guardar. Los datos se guardarán localmente.');
+            if (error instanceof MovimientoInvalidoError) {
+                setFormError(error.message);
+            } else {
+                alert('Error al guardar. Los datos se guardarán localmente.');
+            }
         } finally {
             setSaving(false);
             setPendingTransaction(null);
