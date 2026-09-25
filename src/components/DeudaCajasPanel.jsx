@@ -16,6 +16,7 @@ import { db, generateUUID } from '../services/db';
 import { addToSyncQueue, processSyncQueue } from '../services/syncService';
 import { useAuth } from '../context/AuthContext';
 import { restarMontos, estadoDeuda } from '../services/dinero';
+import { aplicarEfectoEnSaldos } from '../app/contenedor';
 
 export default function DeudaCajasPanel({ onDebtChanged }) {
     const { currentUser } = useAuth();
@@ -167,21 +168,8 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
             await db.transacciones.add(transaccion);
             await addToSyncQueue('transacciones', 'INSERT', transaccion);
 
-            // 3. Update lender caja balance (deduct)
-            const cajaOrigen = await db.cajas.get(formData.cajaAcreedoraId);
-            if (cajaOrigen) {
-                const nuevoSaldoOrigen = (cajaOrigen.saldo_actual || 0) - monto;
-                await db.cajas.update(formData.cajaAcreedoraId, { saldo_actual: nuevoSaldoOrigen });
-                await addToSyncQueue('cajas', 'UPDATE', { ...cajaOrigen, saldo_actual: nuevoSaldoOrigen });
-            }
-
-            // 4. Update borrower caja balance (add)
-            const cajaDestino = await db.cajas.get(formData.cajaDeudoraId);
-            if (cajaDestino) {
-                const nuevoSaldoDestino = (cajaDestino.saldo_actual || 0) + monto;
-                await db.cajas.update(formData.cajaDeudoraId, { saldo_actual: nuevoSaldoDestino });
-                await addToSyncQueue('cajas', 'UPDATE', { ...cajaDestino, saldo_actual: nuevoSaldoDestino });
-            }
+            // 3-4. Ajustar saldos de acreedora y deudora con la regla única
+            await aplicarEfectoEnSaldos(transaccion, { payload: 'filaCompleta' });
 
             // 5. Sync all changes immediately if online
             if (navigator.onLine) {
@@ -287,29 +275,8 @@ export default function DeudaCajasPanel({ onDebtChanged }) {
                 }
             }
 
-            // 3. Update debtor caja balance (deduct) and sync
-            if (deuda.caja_deudora_id) {
-                const cajaOrigen = await db.cajas.get(deuda.caja_deudora_id);
-                if (cajaOrigen) {
-                    const nuevoSaldoOrigen = (cajaOrigen.saldo_actual || 0) - amount;
-                    await db.cajas.update(deuda.caja_deudora_id, { saldo_actual: nuevoSaldoOrigen });
-                    // Sync to Supabase
-                    const updatedCajaOrigen = { ...cajaOrigen, saldo_actual: nuevoSaldoOrigen };
-                    await addToSyncQueue('cajas', 'UPDATE', updatedCajaOrigen);
-                }
-            }
-
-            // 4. Update creditor caja balance (add) and sync
-            if (deuda.caja_acreedora_id) {
-                const cajaDestino = await db.cajas.get(deuda.caja_acreedora_id);
-                if (cajaDestino) {
-                    const nuevoSaldoDestino = (cajaDestino.saldo_actual || 0) + amount;
-                    await db.cajas.update(deuda.caja_acreedora_id, { saldo_actual: nuevoSaldoDestino });
-                    // Sync to Supabase
-                    const updatedCajaDestino = { ...cajaDestino, saldo_actual: nuevoSaldoDestino };
-                    await addToSyncQueue('cajas', 'UPDATE', updatedCajaDestino);
-                }
-            }
+            // 3-4. Ajustar saldos de deudora y acreedora con la regla única
+            await aplicarEfectoEnSaldos(transaccion, { payload: 'filaCompleta' });
 
             // 5. Sync caja updates immediately if online
             if (navigator.onLine) {

@@ -21,6 +21,7 @@ import { addToSyncQueue, processSyncQueue } from '../services/syncService';
 import AutocompleteInput from './AutocompleteInput';
 import { useAuth } from '../context/AuthContext';
 import { restarMontos, estadoDeuda } from '../services/dinero';
+import { aplicarEfectoEnSaldos } from '../app/contenedor';
 
 export default function DeudaTercerosPanel({ onDebtChanged }) {
     const { currentUser } = useAuth();
@@ -333,25 +334,11 @@ export default function DeudaTercerosPanel({ onDebtChanged }) {
                 }
             }
 
-            // 3. Update caja balance (deduct) and sync to Supabase
-            const caja = await db.cajas.get(paymentData.cajaId);
-            if (caja) {
-                const nuevoSaldo = (caja.saldo_actual || 0) - amount;
-                await db.cajas.update(paymentData.cajaId, { saldo_actual: nuevoSaldo });
-
-                // Sync caja balance update to Supabase
-                const updatedCaja = { ...caja, saldo_actual: nuevoSaldo };
-                await addToSyncQueue('cajas', 'UPDATE', updatedCaja);
-
-                // Sync immediately if online
-                if (navigator.onLine) {
-                    await processSyncQueue();
-                }
-
-                // Update local state
-                setCajas(cajas.map(c =>
-                    c.id === paymentData.cajaId ? { ...c, saldo_actual: nuevoSaldo } : c
-                ));
+            // 3. Ajustar saldo de la caja con la regla única
+            const resultados = await aplicarEfectoEnSaldos(transaccion, { payload: 'filaCompleta' });
+            if (resultados.length > 0) {
+                if (navigator.onLine) await processSyncQueue();
+                setCajas(cajas.map(c => c.id === paymentData.cajaId ? { ...c, saldo_actual: resultados[0].saldoNuevo } : c));
             }
 
             // Update local deuda state
