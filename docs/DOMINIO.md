@@ -34,8 +34,47 @@ Consecuencias:
 - Una transferencia **no cambia** el saldo total del sistema, solo lo mueve.
 - Una transferencia sin destino haría desaparecer dinero. Está prohibida.
 - `monto` siempre es positivo (`CHECK (monto > 0)`). El signo lo da el tipo.
+- `fecha` es obligatoria y tiene que ser un día real en formato `YYYY-MM-DD`
+  (`FECHA_REQUERIDA` / `FECHA_INVALIDA` en `validarMovimiento`). Una fecha
+  vacía la rechaza Postgres, y la cola descartaba el movimiento después de
+  haber subido el ajuste de saldo (MOV-2).
 - Editar un movimiento = revertir el efecto del original + aplicar el nuevo.
-- Borrar un movimiento = revertir su efecto.
+  El "original" es la fila **guardada**, que el caso de uso relee; no la copia
+  que tiene la pantalla, que puede estar vieja (MOV-4).
+- Borrar un movimiento = revertir su efecto. Es idempotente: si la fila ya
+  no está (doble toque, o la borró otro dispositivo), no se revierte nada.
+- Alta, edición y borrado son **atómicos**: la fila, los ajustes de saldo y
+  lo encolado se guardan juntos o no se guarda nada (unidad de trabajo, C22).
+  Un reintento después de un fallo no duplica el efecto. La sincronización
+  se lanza después y no se espera: el formulario no queda bloqueado mientras
+  sube la cola (MOV-7).
+- Una edición deja el movimiento `sincronizado: false` hasta que el UPDATE
+  sube (C21).
+
+### Movimientos que pertenecen a una deuda
+
+Los paneles de Deudas crean movimientos que son la mitad de una operación
+compuesta; la otra mitad es la deuda (`monto_pendiente`, `estado`, `pagos`):
+
+| Tipo | Categoría | Qué es |
+|---|---|---|
+| `TRANSFERENCIA` | `Préstamo entre Cajas` | El préstamo de una caja a otra |
+| `TRANSFERENCIA` | `Pago Préstamo` | Un abono a ese préstamo |
+| `EGRESO` | `Pago Deuda` | Un abono a un proveedor |
+
+Regla (C15), en `src/domain/rules/movimientoDeDeuda.js`:
+
+- Esos movimientos **solo se administran desde Deudas**. Editarlos o
+  borrarlos sueltos movería la caja sin tocar la deuda. La UI no ofrece
+  editar ni borrar ("Se administra desde Deudas") y los casos de uso los
+  rechazan con `MovimientoDeDeudaError`.
+- Por la misma razón, el formulario de movimientos no puede **crear** uno
+  (ni convertir un movimiento normal en uno): quedaría sin deuda y, por la
+  regla anterior, bloqueado para siempre. Error `RESERVADO_PARA_DEUDAS`.
+- Se reconocen por tipo **y** categoría: un `EGRESO` "Pago Préstamo" (la
+  cuota de un crédito bancario) es un gasto normal.
+- Pendiente (porción 3 de la Fase 3): casos de uso de deudas que, al anular
+  un abono, ajusten la deuda y el movimiento juntos.
 
 ### Saldo de una caja
 
@@ -53,8 +92,10 @@ lo que permite que diverja de esta fórmula (ver `BACKLOG.md`, C6). Cualquier
 cambio debe acercar el sistema a esta regla, no alejarlo.
 
 El "saldo inicial" de una caja que ya tenía dinero antes de usar el sistema
-debe registrarse como un `INGRESO` con categoría de apertura, no escribiendo
-`saldo_actual` a mano.
+debe registrarse como un `INGRESO` con categoría de apertura (`Saldo
+inicial`), no escribiendo `saldo_actual` a mano. Los datos de prueba
+(`src/application/pruebas/generarDatosDePrueba.js`) lo hacen así: cada caja
+nace en 0 y su saldo es exactamente la suma de sus movimientos.
 
 ## Préstamos entre cajas (`deudas_cajas`)
 
@@ -66,6 +107,11 @@ debe registrarse como un `INGRESO` con categoría de apertura, no escribiendo
   1. `monto_pendiente` baja; el abono se agrega a `pagos` (JSONB)
   2. se registra una `TRANSFERENCIA` deudora → acreedora, categoría `Pago Préstamo`
 - El abono nunca puede superar `monto_pendiente`.
+- Cada pago en `pagos` lleva `monto`, `fecha` (timestamp) y `usuario_nombre`
+  (los abonos a proveedores, además, `descripcion` y `caja_id`). Los datos de
+  prueba agregan `transaccion_id`, el movimiento del abono, que es el vínculo
+  que necesitará "anular abono"; los paneles de Deudas todavía no lo
+  escriben.
 
 ## Cuentas por pagar (`deudas_terceros`)
 

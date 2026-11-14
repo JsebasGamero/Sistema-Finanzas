@@ -4,6 +4,7 @@ import {
     revertirAjustes,
     efectoDeBorrado,
     efectoDeEdicion,
+    consolidarAjustes,
 } from './efectoEnSaldos';
 
 describe('efectoEnSaldos', () => {
@@ -143,6 +144,44 @@ describe('efectoDeEdicion', () => {
         expect(efectoDeEdicion(original, actualizado)).toEqual([
             { cajaId: 'A', delta: 1000 },
             { cajaId: 'B', delta: 1000 },
+        ]);
+    });
+});
+
+describe('consolidarAjustes', () => {
+    it('suma por caja respetando el orden de primera aparición', () => {
+        expect(consolidarAjustes([
+            { cajaId: 'B', delta: 100 },
+            { cajaId: 'A', delta: -50 },
+            { cajaId: 'B', delta: 25 },
+        ])).toEqual([
+            { cajaId: 'B', delta: 125 },
+            { cajaId: 'A', delta: -50 },
+        ]);
+    });
+
+    it('omite las cajas cuyo neto es cero (también con ruido de coma flotante)', () => {
+        expect(consolidarAjustes([
+            { cajaId: 'A', delta: 0.1 },
+            { cajaId: 'A', delta: 0.2 },
+            { cajaId: 'A', delta: -0.3 },
+            { cajaId: 'B', delta: 10 },
+        ])).toEqual([{ cajaId: 'B', delta: 10 }]);
+    });
+
+    it('ignora ajustes sin caja', () => {
+        expect(consolidarAjustes([{ cajaId: null, delta: 5 }, { delta: 3 }])).toEqual([]);
+    });
+
+    it('equivale a aplicar los efectos de varios movimientos uno por uno', () => {
+        const movimientos = [
+            { tipo_movimiento: 'INGRESO', monto: 1000, caja_origen_id: 'A' },
+            { tipo_movimiento: 'TRANSFERENCIA', monto: 300, caja_origen_id: 'A', caja_destino_id: 'B' },
+            { tipo_movimiento: 'EGRESO', monto: 50, caja_origen_id: 'B' },
+        ];
+        expect(consolidarAjustes(movimientos.flatMap(efectoEnSaldos))).toEqual([
+            { cajaId: 'A', delta: 700 },
+            { cajaId: 'B', delta: 250 },
         ]);
     });
 });

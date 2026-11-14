@@ -1,7 +1,7 @@
 // Regla central del sistema (ver docs/DOMINIO.md, "Tipos de movimiento y su
 // efecto en los saldos"). Único lugar donde vive esta lógica: hoy está
 // copiada en cinco componentes distintos, cada uno con su variante.
-import { aMonto } from '../value-objects/dinero';
+import { aMonto, esCero, redondearMonto } from '../value-objects/dinero';
 import { TIPO_MOVIMIENTO } from '../value-objects/tipoMovimiento';
 
 /** @typedef {{ cajaId: string, delta: number }} AjusteSaldo */
@@ -67,4 +67,25 @@ export function efectoDeBorrado(movimiento) {
  */
 export function efectoDeEdicion(original, actualizado) {
     return [...efectoDeBorrado(original), ...efectoEnSaldos(actualizado)];
+}
+
+/**
+ * Suma los ajustes de cada caja en uno solo, en el orden en que aparece cada
+ * caja por primera vez, y omite las cajas cuyo neto es cero.
+ *
+ * Sirve para cargas masivas (datos de prueba): aplicar cientos de movimientos
+ * de a uno encolaría cientos de `cajas UPDATE` con saldos intermedios que
+ * nadie necesita. El efecto final sobre cada caja es el mismo.
+ * @param {AjusteSaldo[]} ajustes
+ * @returns {AjusteSaldo[]}
+ */
+export function consolidarAjustes(ajustes) {
+    const netoPorCaja = new Map();
+    for (const { cajaId, delta } of ajustes) {
+        if (!cajaId) continue;
+        netoPorCaja.set(cajaId, redondearMonto((netoPorCaja.get(cajaId) || 0) + aMonto(delta)));
+    }
+    return [...netoPorCaja]
+        .filter(([, delta]) => !esCero(delta))
+        .map(([cajaId, delta]) => ({ cajaId, delta }));
 }

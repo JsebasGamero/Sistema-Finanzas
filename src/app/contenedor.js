@@ -11,6 +11,7 @@ import { crearOutboxDexie } from '../infrastructure/sync/outboxDexie';
 import { crearSincronizador } from '../infrastructure/sync/sincronizador';
 import { crearTransaccionRepositoryDexie } from '../infrastructure/dexie/transaccionRepositoryDexie';
 import { crearAplicadorDeAjustesDexie } from '../infrastructure/dexie/aplicadorDeAjustesDexie';
+import { crearUnidadDeTrabajoDexie } from '../infrastructure/dexie/unidadDeTrabajoDexie';
 import { crearRegistrarMovimiento } from '../application/movimientos/registrarMovimiento';
 import { crearEditarMovimiento } from '../application/movimientos/editarMovimiento';
 import { crearBorrarMovimiento } from '../application/movimientos/borrarMovimiento';
@@ -25,17 +26,19 @@ const sincronizador = crearSincronizador({
     procesarCola: processSyncQueue,
     estaEnLinea: () => navigator.onLine
 });
+// transacciones + cajas + sync_queue en una sola transacción de Dexie (C22).
+const unidadDeTrabajo = crearUnidadDeTrabajoDexie(db);
 
 export const registrarMovimiento = crearRegistrarMovimiento({
-    transacciones, aplicadorDeAjustes, outbox, sincronizador, generarId: generateUUID, ahora
+    transacciones, aplicadorDeAjustes, outbox, sincronizador, unidadDeTrabajo, generarId: generateUUID, ahora
 });
 
 export const editarMovimiento = crearEditarMovimiento({
-    transacciones, aplicadorDeAjustes, outbox, sincronizador, ahora
+    transacciones, aplicadorDeAjustes, outbox, sincronizador, unidadDeTrabajo, ahora
 });
 
 export const borrarMovimiento = crearBorrarMovimiento({
-    transacciones, aplicadorDeAjustes, outbox, sincronizador
+    transacciones, aplicadorDeAjustes, outbox, sincronizador, unidadDeTrabajo
 });
 
 // Puente temporal para los paneles de deudas: todavía crean sus transacciones

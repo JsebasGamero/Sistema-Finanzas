@@ -1,7 +1,20 @@
 // Validación de un movimiento antes de persistirlo.
 import { esTipoMovimiento, TIPO_MOVIMIENTO } from '../value-objects/tipoMovimiento';
+import { claveDiaDeDate, fechaLocal } from '../value-objects/fecha';
 
 /** @typedef {{ campo: string, codigo: string, mensaje: string }} ErrorValidacion */
+
+const FORMATO_FECHA = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * ¿Es un día real del calendario en formato 'YYYY-MM-DD'? '2026-02-30' tiene
+ * el formato pero no existe: el Date lo desborda a marzo y deja de coincidir.
+ */
+function esFechaDeCalendario(valor) {
+    if (typeof valor !== 'string' || !FORMATO_FECHA.test(valor)) return false;
+    const fecha = fechaLocal(valor);
+    return fecha !== null && claveDiaDeDate(fecha) === valor;
+}
 
 /**
  * Valida un movimiento contra las reglas de docs/DOMINIO.md.
@@ -28,6 +41,25 @@ export function validarMovimiento(movimiento) {
             campo: 'monto',
             codigo: 'MONTO_INVALIDO',
             mensaje: 'El monto debe ser mayor a 0.',
+        });
+    }
+
+    // Bug MOV-2: con la fecha borrada en el selector llegaba `fecha: ''`.
+    // Postgres la rechaza (22007, HTTP 400), la cola la descartaba como
+    // permanente y el `cajas UPDATE` que se había encolado antes ya había
+    // subido: la caja de la nube quedaba con el monto aplicado y sin el
+    // movimiento que lo explica.
+    if (!movimiento?.fecha) {
+        errores.push({
+            campo: 'fecha',
+            codigo: 'FECHA_REQUERIDA',
+            mensaje: 'Elige la fecha del movimiento.',
+        });
+    } else if (!esFechaDeCalendario(movimiento.fecha)) {
+        errores.push({
+            campo: 'fecha',
+            codigo: 'FECHA_INVALIDA',
+            mensaje: 'La fecha no es válida. Elige el día en el calendario.',
         });
     }
 

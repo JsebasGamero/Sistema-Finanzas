@@ -12,6 +12,7 @@ Para escribir una nueva, usa la skill `registrar-decision`.
 | 002 | [El saldo de una caja se deriva de sus movimientos](002-saldo-derivado.md) | propuesta |
 | 003 | [Clean Architecture por porciones verticales](003-clean-architecture-incremental.md) | aceptada |
 | 004 | [Un único aplicador de ajustes de saldo, como paso transitorio](004-aplicador-unico-transitorio.md) | aceptada |
+| 005 | [Los casos de uso de movimientos escriben dentro de una unidad de trabajo y no esperan la sincronización](005-unidad-de-trabajo-movimientos.md) | aceptada |
 
 ## Plantilla
 

@@ -37,8 +37,11 @@ los componentes todavía no tienen tests.
 |---|---|
 | `docs/DOMINIO.md` | Glosario y reglas de negocio. Qué hace cada tipo de movimiento con los saldos. |
 | `docs/ARQUITECTURA.md` | Arquitectura actual, arquitectura objetivo (Clean Architecture) y cómo migrar. |
+| `docs/DISENO.md` | Sistema de diseño "Libro de obra": tokens, temas día/noche, componentes base, gráficas. |
+| `docs/REPORTES.md` | Módulo de reportes y tabla dinámica (AG-Grid Community + motor propio). |
 | `docs/SINCRONIZACION.md` | Modelo offline: cola de sync, pull, códigos de error, invariantes. |
-| `docs/ENTORNOS.md` | Desarrollo vs. producción: credenciales, candado, flujo de migraciones. |
+| `docs/ENTORNOS.md` | Cuenta de producción vs. cuenta de pruebas: credenciales, candados, modo local, datos de prueba, migraciones. |
+| `docs/SEGURIDAD.md` | Pasos manuales de seguridad en Supabase y planes de roles y bucket privado. |
 | `docs/BACKLOG.md` | Bugs de la auditoría y fases del plan, con estado. **Fuente de verdad del trabajo pendiente.** |
 | `docs/ORQUESTACION.md` | Cómo se reparte el trabajo entre agentes. |
 | `docs/decisiones/` | ADRs: decisiones de diseño y por qué se tomaron. |
@@ -70,10 +73,13 @@ Cada una tiene su historia en `docs/BACKLOG.md`.
    sin rol: la anon key es pública.
 9. **Nada de credenciales en el repo.** Los `.env*.local` están ignorados;
    `.env.example` solo lleva placeholders.
-10. **Desarrollo nunca apunta a producción.** Las pruebas se hacen con
-    `npm run dev` contra el proyecto Supabase de desarrollo. No desactives el
-    candado de `src/services/entorno.js` ni crees un `.env` a secas con
-    credenciales de producción. Ver `docs/ENTORNOS.md`.
+10. **Desarrollo nunca escribe en los datos de producción.** Las pruebas se
+    hacen con `npm run dev` contra el proyecto Supabase de pruebas o contra el
+    esquema `pruebas` del proyecto real (`VITE_SUPABASE_SCHEMA=pruebas`,
+    `supabase/esquema_pruebas.sql`), nunca contra `public`. No desactives el
+    candado de `src/services/entorno.js` ni el de `vite.config.js`, ni crees un
+    `.env` a secas con credenciales de producción. Si cambias el esquema de
+    `public`, aplica el mismo cambio en `pruebas`. Ver `docs/ENTORNOS.md`.
 
 ## Deuda conocida que todavía está viva
 
@@ -98,8 +104,12 @@ Cada una tiene su historia en `docs/BACKLOG.md`.
 - Cambios de esquema: siempre como migración nueva en `supabase/migrations/`
   **y** reflejados en `supabase_setup.sql`. Skill: `nueva-migracion`.
 - Nada de emojis en la interfaz ni en los mensajes del sistema.
-- UI: usa los tokens de `src/index.css` (`--bg-card`, `--border-subtle`...),
-  no valores `rgba()` sueltos en `style={{}}`.
+- UI: sistema "Libro de obra" (`docs/DISENO.md`). Tokens como utilidades
+  (`text-ink`, `bg-surface`, `border-line`, `text-pos`...), nunca `rgba()`,
+  `#hex`, `text-white` ni `text-gray-*` en componentes: hay tema día y noche.
+- Fechas de calendario con `src/domain/value-objects/fecha.js` (`hoyLocal`,
+  `claveDia`, `enRango`); formato con `src/presentation/formato.js`. Nunca
+  `toISOString().split('T')[0]` (de noche en Colombia da la fecha de mañana).
 - Responsive: todo se prueba a 320px de ancho. Nada que dependa solo de hover.
 
 ## Definición de terminado

@@ -1,390 +1,354 @@
-// TransactionEditModal - Modal to edit existing transactions
-import { useState, useEffect } from 'react';
-import { X, Save, ArrowRight, ArrowDownLeft, ArrowUpRight, ArrowLeftRight } from 'lucide-react';
-import { db, generateUUID } from '../services/db';
-import { addToSyncQueue, processSyncQueue } from '../services/syncService';
-import AutocompleteInput from './AutocompleteInput';
-import { useAuth } from '../context/AuthContext';
-import { TIPO_CATEGORIA_POR_DEFECTO } from '../services/categorias';
+// Edición de un movimiento existente. Usa los mismos controles y la misma
+// validación que el alta (CamposMovimiento) para que las reglas no diverjan.
+import { useEffect, useId, useRef, useState } from 'react';
+import { liveQuery } from 'dexie';
+import { Loader2, Lock, Save, X } from 'lucide-react';
+import { db } from '../services/db';
+import { resolverNombreCategoria } from '../services/categorias';
+import { useAuth } from '../context/useAuth';
 import { MovimientoInvalidoError } from '../domain/errores';
-export default function TransactionEditModal({
-    isOpen,
-    transaction,
-    onSave,
-    onClose
-}) {
-    const { currentUser } = useAuth();
-    const [formData, setFormData] = useState({});
-    const [cajas, setCajas] = useState([]);
-    const [proyectos, setProyectos] = useState([]);
-    const [terceros, setTerceros] = useState([]);
-    const [saving, setSaving] = useState(false);
-    const [error, setError] = useState('');
+import { esMovimientoDeDeuda } from '../domain/rules/movimientoDeDeuda';
+import { TIPO_MOVIMIENTO } from '../domain/value-objects/tipoMovimiento';
+import { aMonto } from '../domain/value-objects/dinero';
+import { claveDia, hoyLocal } from '../domain/value-objects/fecha';
+import { formatoFecha, formatoMoneda } from '../presentation/formato';
+import ConfirmModal from './ConfirmModal';
+import { CamposMovimiento, ResumenErrores } from './TransactionForm';
 
-    const [categorias, setCategorias] = useState([]);
+const TIPOS = {
+    INGRESO: { etiqueta: 'Ingreso', marca: 'I', clase: 'ingreso' },
+    EGRESO: { etiqueta: 'Egreso', marca: 'E', clase: 'egreso' },
+    TRANSFERENCIA: { etiqueta: 'Transferencia', marca: 'T', clase: 'transferencia' },
+};
+
+const CAMPOS_EDITABLES = [
+    'monto', 'fecha', 'caja_origen_id', 'caja_destino_id', 'categoria',
+    'proyecto_id', 'tercero_id', 'descripcion', 'soporte_url',
+];
+
+const SIN_SENAL_EDICION = 'Sin señal no se puede subir la foto. Vuelve a intentarlo cuando tengas conexión.';
+
+const ENFOCABLES = 'button:not([disabled]), [href], input:not([disabled]):not([type=file]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function ordenarPorNombre(lista) {
+    return [...lista].sort((a, b) =>
+        String(a.nombre ?? '').localeCompare(String(b.nombre ?? ''), 'es', { sensitivity: 'base' }));
+}
+
+function valoresDe(tx) {
+    const hayMonto = tx.monto !== null && tx.monto !== undefined && tx.monto !== '';
+    return {
+        tipo_movimiento: tx.tipo_movimiento || TIPO_MOVIMIENTO.EGRESO,
+        // Pesos enteros en el campo. Antes 1500.5 se mostraba como "15.005"
+        // y, si se tocaba el campo, se guardaba multiplicado (bug MOV-3).
+        monto: hayMonto ? String(Math.round(aMonto(tx.monto))) : '',
+        // Bug MOV-1: el respaldo usaba la fecha UTC (de noche, "mañana").
+        fecha: claveDia(tx.fecha) || hoyLocal(),
+        caja_origen_id: tx.caja_origen_id || '',
+        caja_destino_id: tx.caja_destino_id || '',
+        categoria: tx.categoria || '',
+        proyecto_id: tx.proyecto_id || '',
+        tercero_id: tx.tercero_id || '',
+        descripcion: tx.descripcion || '',
+        soporte_url: tx.soporte_url || null,
+    };
+}
+
+function valorParaGuardar(campo, valor) {
+    if (campo === 'monto') return Number(valor || 0);
+    if (['proyecto_id', 'tercero_id', 'caja_destino_id', 'soporte_url'].includes(campo)) return valor || null;
+    return valor;
+}
+
+function quitarClaves(objeto, claves) {
+    if (!claves.some((clave) => clave in objeto)) return objeto;
+    const copia = { ...objeto };
+    for (const clave of claves) delete copia[clave];
+    return copia;
+}
+
+export default function TransactionEditModal({ isOpen, transaction, onSave, onClose }) {
+    if (!isOpen || !transaction) return null;
+    // Montar de cero en cada apertura: el error del movimiento anterior ya no
+    // aparece al abrir otro (bug MOV-10).
+    return <HojaEdicion key={transaction.id} transaction={transaction} onSave={onSave} onClose={onClose} />;
+}
+
+function HojaEdicion({ transaction, onSave, onClose }) {
+    const { currentUser } = useAuth();
+    const idBase = useId();
+    const idTitulo = `${idBase}-titulo`;
+    const esDeDeuda = esMovimientoDeDeuda(transaction);
+    const tipo = TIPOS[transaction.tipo_movimiento] ?? TIPOS.EGRESO;
+
+    const [inicial] = useState(() => valoresDe(transaction));
+    const [valores, setValores] = useState(inicial);
+    const [errores, setErrores] = useState({});
+    const [errorGeneral, setErrorGeneral] = useState('');
+    const [catalogos, setCatalogos] = useState({ cajas: [], proyectos: [], terceros: [], categorias: [] });
+    const [subiendo, setSubiendo] = useState(false);
+    const [guardando, setGuardando] = useState(false);
+    const [confirmandoDescarte, setConfirmandoDescarte] = useState(false);
+
+    const hojaRef = useRef(null);
+    const camposRef = useRef(null);
+    const guardandoRef = useRef(false);
+    const toqueEnFondoRef = useRef(false);
+
+    const sucio = !esDeDeuda && CAMPOS_EDITABLES.some((campo) => valores[campo] !== inicial[campo]);
 
     useEffect(() => {
-        if (isOpen && transaction) {
-            setFormData({
-                ...transaction,
-                fecha: transaction.fecha?.split('T')[0] || new Date().toISOString().split('T')[0]
-            });
-            loadData();
-        }
-    }, [isOpen, transaction]);
-
-    async function loadData() {
-        const [cajasData, proyectosData, tercerosData] = await Promise.all([
+        if (esDeDeuda) return undefined;
+        const suscripcion = liveQuery(() => Promise.all([
             db.cajas.toArray(),
             db.proyectos.toArray(),
-            db.terceros.toArray()
-        ]);
-        setCajas(cajasData);
-        setProyectos(proyectosData);
-        setTerceros(tercerosData);
+            db.terceros.toArray(),
+            db.categorias.toArray(),
+        ])).subscribe({
+            next: ([cajas, proyectos, terceros, categorias]) => setCatalogos({
+                cajas: ordenarPorNombre(cajas),
+                proyectos: ordenarPorNombre(proyectos),
+                terceros: ordenarPorNombre(terceros),
+                categorias: ordenarPorNombre(categorias),
+            }),
+            error: (error) => console.error('No se pudieron leer los catálogos:', error),
+        });
+        return () => suscripcion.unsubscribe();
+    }, [esDeDeuda]);
 
-        // Load categories
-        try {
-            const categoriasData = await db.categorias.toArray();
-            setCategorias(categoriasData);
-        } catch (e) {
-            console.log('Error loading categories:', e);
-        }
-    }
-
-    // Format number with thousand separators (dots) for display in input
-    function formatDisplayNumber(value) {
-        if (!value && value !== 0) return '';
-        const numStr = String(value).replace(/\D/g, '');
-        if (!numStr) return '';
-        return new Intl.NumberFormat('es-CO').format(parseInt(numStr, 10));
-    }
-
-    // Parse formatted number back to raw number string
-    function parseFormattedNumber(formattedValue) {
-        return formattedValue.replace(/\./g, '');
-    }
-
-    // Create a new tercero on the fly
-    async function createNewTercero(nombre) {
-        const newTercero = {
-            id: generateUUID(),
-            nombre: nombre,
-            tipo: 'Proveedor',
-            nit_cedula: '',
-            telefono: '',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+    // El foco entra al diálogo (sin abrir el teclado del celular) y vuelve a
+    // donde estaba al cerrar.
+    useEffect(() => {
+        const previo = document.activeElement;
+        hojaRef.current?.focus();
+        return () => {
+            if (previo && typeof previo.focus === 'function' && document.contains(previo)) previo.focus();
         };
+    }, []);
 
-        await db.terceros.add(newTercero);
-        await addToSyncQueue('terceros', 'INSERT', newTercero);
-
-        if (navigator.onLine) {
-            processSyncQueue().catch(err => console.log('Sync error:', err));
-        }
-
-        setTerceros(prev => [...prev, newTercero]);
-        return newTercero;
+    function pedirCierre() {
+        if (guardandoRef.current) return;
+        // Bug MOV-18: un toque fuera del modal descartaba la edición sin
+        // preguntar.
+        if (sucio) setConfirmandoDescarte(true);
+        else onClose();
     }
 
-    // Create a new category on the fly
-    async function createNewCategoria(nombre) {
-        const newCategoria = {
-            id: generateUUID(),
-            nombre: nombre,
-            tipo: TIPO_CATEGORIA_POR_DEFECTO,
-            created_at: new Date().toISOString()
-        };
-
-        try {
-            await db.categorias.add(newCategoria);
-            await addToSyncQueue('categorias', 'INSERT', newCategoria);
-            if (navigator.onLine) {
-                processSyncQueue().catch(err => console.log('Sync error:', err));
+    useEffect(() => {
+        function alTeclear(e) {
+            if (e.key !== 'Escape' || e.defaultPrevented) return;
+            if (confirmandoDescarte) {
+                setConfirmandoDescarte(false);
+                return;
             }
-        } catch (e) {
-            console.log('Categories table may not exist:', e);
+            // Si hay otro diálogo encima (la vista previa del soporte), el
+            // Escape es para él, no para cerrar la edición.
+            const dialogos = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+            if (dialogos.length > 0 && dialogos[dialogos.length - 1] !== hojaRef.current) return;
+            if (guardandoRef.current) return;
+            if (sucio) setConfirmandoDescarte(true);
+            else onClose();
         }
+        document.addEventListener('keydown', alTeclear);
+        return () => document.removeEventListener('keydown', alTeclear);
+    }, [confirmandoDescarte, sucio, onClose]);
 
-        setCategorias(prev => [...prev, newCategoria]);
-        return newCategoria;
+    function atraparFoco(e) {
+        if (e.key !== 'Tab' || !hojaRef.current) return;
+        const enfocables = Array.from(hojaRef.current.querySelectorAll(ENFOCABLES))
+            .filter((el) => el.offsetParent !== null);
+        if (enfocables.length === 0) return;
+        const primero = enfocables[0];
+        const ultimo = enfocables[enfocables.length - 1];
+        const actual = document.activeElement;
+        if (e.shiftKey && (actual === primero || actual === hojaRef.current)) {
+            e.preventDefault();
+            ultimo.focus();
+        } else if (!e.shiftKey && actual === ultimo) {
+            e.preventDefault();
+            primero.focus();
+        }
     }
 
-    // Create a new caja on the fly
-    async function createNewCaja(nombre) {
-        const newCaja = {
-            id: generateUUID(),
-            nombre: nombre,
-            tipo: 'Efectivo', // Default type
-            empresa_id: null,
-            saldo_actual: 0,
-            created_at: new Date().toISOString()
-        };
-
-        await db.cajas.add(newCaja);
-        await addToSyncQueue('cajas', 'INSERT', newCaja);
-
-        if (navigator.onLine) {
-            processSyncQueue().catch(err => console.log('Sync error:', err));
-        }
-
-        setCajas(prev => [...prev, newCaja]);
-        return newCaja;
+    function alCambiar(parcial) {
+        setValores((v) => {
+            const nuevo = { ...v, ...parcial };
+            // Bug MOV-13: el destino no puede ser el nuevo origen.
+            if ('caja_origen_id' in parcial && parcial.caja_origen_id && parcial.caja_origen_id === v.caja_destino_id) {
+                nuevo.caja_destino_id = '';
+            }
+            return nuevo;
+        });
+        setErrores((e) => quitarClaves(e, Object.keys(parcial)));
+        setErrorGeneral('');
     }
 
-    // Create a new project on the fly
-    async function createNewProyecto(nombre) {
-        const newProyecto = {
-            id: generateUUID(),
-            nombre: nombre,
-            empresa_id: formData.empresa_id || null, // Link to current company if selected
-            // 'ACTIVO' violaba CHECK (estado IN ('Activo','Pausado','Finalizado'))
-            estado: 'Activo',
-            presupuesto_estimado: 0,
-            created_at: new Date().toISOString()
-        };
-
-        await db.proyectos.add(newProyecto);
-        await addToSyncQueue('proyectos', 'INSERT', newProyecto);
-
-        if (navigator.onLine) {
-            processSyncQueue().catch(err => console.log('Sync error:', err));
-        }
-
-        setProyectos(prev => [...prev, newProyecto]);
-        return newProyecto;
+    function alErrorCampo(campo, mensaje) {
+        setErrores((e) => (mensaje ? { ...e, [campo]: mensaje } : quitarClaves(e, [campo])));
     }
 
-    async function handleSubmit(e) {
+    function alCrearCatalogo(tabla, fila) {
+        setCatalogos((c) => (c[tabla].some((f) => f.id === fila.id) ? c : { ...c, [tabla]: [...c[tabla], fila] }));
+    }
+
+    function construirDatos() {
+        // Solo se escribe lo que el usuario cambió: un monto viejo con
+        // decimales o una categoría guardada como UUID se conservan tal cual
+        // si no se tocaron.
+        const datos = { ...transaction, editado_por: currentUser?.nombre || 'Desconocido' };
+        for (const campo of CAMPOS_EDITABLES) {
+            if (valores[campo] !== inicial[campo]) datos[campo] = valorParaGuardar(campo, valores[campo]);
+        }
+        return datos;
+    }
+
+    async function guardar(e) {
         e.preventDefault();
-        if (!formData.monto || !formData.caja_origen_id) return;
-
-        // Misma regla que en el alta: sin caja destino, una transferencia resta
-        // del origen y no suma en ningún lado.
-        if (formData.tipo_movimiento === 'TRANSFERENCIA') {
-            if (!formData.caja_destino_id) {
-                setError('Una transferencia necesita caja destino.');
-                return;
-            }
-            if (formData.caja_destino_id === formData.caja_origen_id) {
-                setError('La caja origen y la caja destino deben ser diferentes.');
-                return;
-            }
+        if (guardandoRef.current || subiendo) return;
+        const datos = construirDatos();
+        const encontrados = camposRef.current?.validar(datos) ?? {};
+        if (Object.keys(encontrados).length > 0) {
+            setErrores(encontrados);
+            camposRef.current?.enfocarPrimero(encontrados);
+            return;
         }
-        setError('');
-
-        setSaving(true);
+        guardandoRef.current = true;
+        setGuardando(true);
+        setErrores({});
+        setErrorGeneral('');
         try {
-            await onSave({
-                ...formData,
-                monto: parseFloat(formData.monto),
-                editado_por: currentUser?.nombre || 'Desconocido'
-            });
+            await onSave(datos);
             onClose();
-        } catch (err) {
-            console.error('Error saving:', err);
-            // Un rechazo de validación (p. ej. monto 0) trae un mensaje que dice
-            // qué corregir; "intenta de nuevo" haría reintentar sin sentido.
-            setError(err instanceof MovimientoInvalidoError
-                ? err.message
-                : 'No se pudo guardar el cambio. Intenta de nuevo.');
+        } catch (error) {
+            if (error instanceof MovimientoInvalidoError) {
+                const porCampo = {};
+                for (const err of error.errores ?? []) {
+                    if (!porCampo[err.campo]) porCampo[err.campo] = err.mensaje;
+                }
+                setErrores(porCampo);
+                camposRef.current?.enfocarPrimero(porCampo);
+            } else {
+                console.error('No se pudo guardar la edición:', error);
+                setErrorGeneral('No se pudo guardar el cambio. Intenta de nuevo.');
+            }
         } finally {
-            setSaving(false);
+            guardandoRef.current = false;
+            setGuardando(false);
         }
     }
 
-    if (!isOpen) return null;
-
-    const tipo = formData.tipo_movimiento || 'EGRESO';
+    const pieConSafeArea = { paddingBottom: 'calc(12px + env(safe-area-inset-bottom))' };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            {/* Backdrop */}
+        <div
+            className="modal-backdrop"
+            // Solo cuenta un toque que empieza y termina en el fondo: arrastrar
+            // desde un campo hasta afuera no debe cerrar.
+            onPointerDown={(e) => { toqueEnFondoRef.current = e.target === e.currentTarget; }}
+            onClick={(e) => {
+                if (e.target === e.currentTarget && toqueEnFondoRef.current) pedirCierre();
+            }}
+        >
             <div
-                className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-                onClick={onClose}
-            />
-
-            {/* Modal */}
-            <div className="relative bg-secondary rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto border border-white/10">
-                {/* Header */}
-                <div className="sticky top-0 bg-secondary border-b border-white/10 px-6 py-4 flex items-center justify-between">
-                    <h3 className="text-xl font-bold">Editar Movimiento</h3>
-                    <button
-                        onClick={onClose}
-                        className="text-gray-400 hover:text-white transition-colors"
-                    >
-                        <X size={24} />
+                ref={hojaRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={idTitulo}
+                tabIndex={-1}
+                onKeyDown={atraparFoco}
+                className="modal-sheet"
+                // Encabezado y pie fijos; solo el cuerpo hace scroll, así el
+                // botón de guardar sigue a la vista con el teclado abierto.
+                style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', outline: 'none' }}
+            >
+                <header className="panel-head">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                        <span className={`tipo-mark ${tipo.clase}`} aria-hidden="true">{tipo.marca}</span>
+                        <div className="min-w-0">
+                            <h2 id={idTitulo} className="panel-title">
+                                {esDeDeuda ? tipo.etiqueta : `Editar ${tipo.etiqueta.toLowerCase()}`}
+                            </h2>
+                            {transaction.usuario_nombre && (
+                                <p className="truncate text-xs text-ink-3">Registrado por {transaction.usuario_nombre}</p>
+                            )}
+                        </div>
+                    </div>
+                    <button type="button" className="btn-icon shrink-0" aria-label="Cerrar" onClick={pedirCierre} disabled={guardando}>
+                        <X size={20} aria-hidden="true" />
                     </button>
-                </div>
+                </header>
 
-                {/* Form */}
-                <form onSubmit={handleSubmit} className="p-6 space-y-4">
-                    {/* Type indicator (read-only) */}
-                    <div className={`flex items-center justify-center gap-2 py-2 rounded-lg font-medium ${tipo === 'INGRESO' ? 'bg-green-500/20 text-green-400' :
-                        tipo === 'EGRESO' ? 'bg-red-500/20 text-red-400' :
-                            'bg-blue-500/20 text-blue-400'
-                        }`}>
-                        {tipo === 'INGRESO' && <><ArrowDownLeft size={18} /> Ingreso</>}
-                        {tipo === 'EGRESO' && <><ArrowUpRight size={18} /> Egreso</>}
-                        {tipo === 'TRANSFERENCIA' && <><ArrowLeftRight size={18} /> Transferencia</>}
-                    </div>
-
-                    {/* Amount */}
-                    <div>
-                        <label className="label">Monto *</label>
-                        <div className="relative">
-                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-xl">$</span>
-                            <input
-                                type="text"
-                                value={formatDisplayNumber(formData.monto)}
-                                onChange={(e) => setFormData({ ...formData, monto: parseFormattedNumber(e.target.value) })}
-                                className="input-field text-xl font-bold"
-                                style={{ paddingLeft: '48px' }}
-                                required
-                                inputMode="numeric"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Date */}
-                    <div>
-                        <label className="label">Fecha</label>
-                        <input
-                            type="date"
-                            value={formData.fecha || ''}
-                            onChange={(e) => setFormData({ ...formData, fecha: e.target.value })}
-                            className="input-field"
-                        />
-                    </div>
-
-                    {/* Caja Origen */}
-                    <div>
-                        <label className="label">
-                            {tipo === 'TRANSFERENCIA' ? 'Caja Origen' : 'Caja'}
-                        </label>
-                        <AutocompleteInput
-                            items={cajas}
-                            value={formData.caja_origen_id}
-                            onChange={(val) => setFormData({ ...formData, caja_origen_id: val })}
-                            onCreateNew={createNewCaja}
-                            placeholder="Escribir o seleccionar caja..."
-                            displayKey="nombre"
-                            valueKey="id"
-                            createLabel="Crear nueva caja:"
-                            emptyMessage="Sin cajas disponibles"
-                        />
-                    </div>
-
-                    {/* Caja Destino - Only for transfers */}
-                    {tipo === 'TRANSFERENCIA' && (
-                        <div className="relative">
-                            <div className="absolute left-1/2 -translate-x-1/2 -top-4 bg-secondary p-1">
-                                <ArrowRight className="text-gold" size={20} />
+                {esDeDeuda ? (
+                    <>
+                        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-5">
+                            <div className="flex items-start gap-3 rounded-md border border-line bg-surface-2 p-3">
+                                <Lock size={18} className="mt-0.5 shrink-0 text-ink-3" aria-hidden="true" />
+                                <p className="text-sm text-ink-2">
+                                    Este movimiento pertenece a una deuda. Adminístralo desde Deudas.
+                                </p>
                             </div>
-                            <label className="label">Caja Destino</label>
-                            <AutocompleteInput
-                                items={cajas.filter(c => c.id !== formData.caja_origen_id)}
-                                value={formData.caja_destino_id}
-                                onChange={(val) => setFormData({ ...formData, caja_destino_id: val })}
-                                onCreateNew={createNewCaja}
-                                placeholder="Escribir o seleccionar caja destino..."
-                                displayKey="nombre"
-                                valueKey="id"
-                                createLabel="Crear nueva caja:"
-                                emptyMessage="Sin cajas disponibles"
+                            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+                                <dt className="text-ink-3">Monto</dt>
+                                <dd className="amount text-right">{formatoMoneda(transaction.monto)}</dd>
+                                <dt className="text-ink-3">Fecha</dt>
+                                <dd className="text-right">{formatoFecha(transaction.fecha)}</dd>
+                                <dt className="text-ink-3">Categoría</dt>
+                                <dd className="text-right">{resolverNombreCategoria(transaction.categoria)}</dd>
+                            </dl>
+                        </div>
+                        <footer className="border-t border-line px-4 pt-3 sm:px-5" style={pieConSafeArea}>
+                            <button type="button" className="btn-secondary w-full" onClick={onClose}>
+                                Cerrar
+                            </button>
+                        </footer>
+                    </>
+                ) : (
+                    <form onSubmit={guardar} noValidate className="flex min-h-0 flex-1 flex-col">
+                        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+                            <CamposMovimiento
+                                ref={camposRef}
+                                idBase={idBase}
+                                valores={valores}
+                                onCambio={alCambiar}
+                                errores={errores}
+                                onErrorCampo={alErrorCampo}
+                                onSubiendo={setSubiendo}
+                                catalogos={catalogos}
+                                onCatalogoCreado={alCrearCatalogo}
+                                usuarioId={currentUser?.id}
+                                mensajeSinSenalSoporte={SIN_SENAL_EDICION}
                             />
                         </div>
-                    )}
-
-                    {/* Category */}
-                    <div>
-                        <label className="label">Categoría</label>
-                        <AutocompleteInput
-                            items={categorias}
-                            value={formData.categoria}
-                            onChange={(val) => setFormData({ ...formData, categoria: val })}
-                            onCreateNew={createNewCategoria}
-                            placeholder="Escribir o seleccionar categoría..."
-                            displayKey="nombre"
-                            valueKey="nombre"
-                            createLabel="Crear nueva categoría:"
-                            emptyMessage="Sin categorías"
-                        />
-                    </div>
-
-                    {/* Project */}
-                    <div>
-                        <label className="label">Proyecto / Obra</label>
-                        <AutocompleteInput
-                            items={proyectos}
-                            value={formData.proyecto_id}
-                            onChange={(val) => setFormData({ ...formData, proyecto_id: val })}
-                            onCreateNew={createNewProyecto}
-                            placeholder="Escribir o seleccionar proyecto..."
-                            displayKey="nombre"
-                            valueKey="id"
-                            createLabel="Crear nuevo proyecto:"
-                            emptyMessage="Sin proyectos"
-                        />
-                    </div>
-
-                    {/* Third party */}
-                    {tipo === 'EGRESO' && (
-                        <div>
-                            <label className="label">Proveedor / Beneficiario</label>
-                            <AutocompleteInput
-                                items={terceros}
-                                value={formData.tercero_id || ''}
-                                onChange={(val) => setFormData({ ...formData, tercero_id: val || null })}
-                                onCreateNew={createNewTercero}
-                                placeholder="Escribir o seleccionar..."
-                                displayKey="nombre"
-                                valueKey="id"
-                                createLabel="Crear proveedor:"
-                                emptyMessage="Sin proveedores"
-                            />
-                        </div>
-                    )}
-
-                    {/* Description */}
-                    <div>
-                        <label className="label">Descripción</label>
-                        <textarea
-                            value={formData.descripcion || ''}
-                            onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
-                            className="input-field min-h-[80px] resize-none"
-                            placeholder="Detalle del movimiento..."
-                        />
-                    </div>
-
-                    {error && (
-                        <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-red-400 text-sm">
-                            {error}
-                        </div>
-                    )}
-
-                    {/* Buttons */}
-                    <div className="flex gap-3 pt-4">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="flex-1 py-3 px-4 rounded-lg bg-card text-gray-300"
-                        >
-                            Cancelar
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={saving}
-                            className="flex-1 py-3 px-4 rounded-lg bg-gold text-white font-medium flex items-center justify-center gap-2"
-                        >
-                            <Save size={18} />
-                            {saving ? 'Guardando...' : 'Guardar cambios'}
-                        </button>
-                    </div>
-                </form>
+                        <footer className="border-t border-line bg-surface px-4 pt-3 sm:px-5" style={pieConSafeArea}>
+                            <ResumenErrores idBase={idBase} errores={errores} errorGeneral={errorGeneral} />
+                            <div className="flex gap-2">
+                                <button type="button" className="btn-secondary flex-1" onClick={onClose} disabled={guardando}>
+                                    Cancelar
+                                </button>
+                                <button type="submit" className="btn-primary flex-1" disabled={guardando || subiendo}>
+                                    {guardando || subiendo ? (
+                                        <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+                                    ) : (
+                                        <Save size={18} aria-hidden="true" />
+                                    )}
+                                    {guardando ? 'Guardando...' : subiendo ? 'Esperando la foto...' : 'Guardar cambios'}
+                                </button>
+                            </div>
+                        </footer>
+                    </form>
+                )}
             </div>
+
+            <ConfirmModal
+                isOpen={confirmandoDescarte}
+                title="Descartar cambios"
+                message="Los cambios que hiciste en este movimiento no se guardarán."
+                confirmText="Descartar"
+                cancelText="Seguir editando"
+                type="danger"
+                onConfirm={onClose}
+                onCancel={() => setConfirmandoDescarte(false)}
+            />
         </div>
     );
 }

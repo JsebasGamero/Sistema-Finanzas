@@ -3,6 +3,22 @@
 -- Script SQL para Supabase
 -- Ejecutar en: Supabase Dashboard > SQL Editor
 -- =====================================================
+--
+-- PARA QUÉ ES: crear desde cero un proyecto NUEVO (el de pruebas, por
+-- ejemplo) con el mismo esquema que producción. Equivale al setup original
+-- más todas las migraciones de supabase/migrations/ (001, 002 y 003): RLS
+-- solo para authenticated, columnas y triggers de la 002, sin las vistas que
+-- quitó la 003, y el bucket `soportes` con sus políticas.
+--
+-- NO SE EJECUTA SOBRE PRODUCCIÓN. Los cambios en una base que ya existe van
+-- siempre como migración nueva (skill nueva-migracion). Este script es
+-- idempotente (IF NOT EXISTS, DROP ... IF EXISTS, semillas con WHERE NOT
+-- EXISTS / ON CONFLICT), así que correrlo dos veces no duplica datos, pero
+-- re-crea todas las políticas: no es la forma de aplicar un cambio puntual.
+--
+-- Después de correrlo, en el dashboard (no se puede por SQL): ver
+-- docs/SEGURIDAD.md, sobre todo desactivar "Allow new users to sign up".
+-- =====================================================
 
 -- 1. EXTENSIONES (Supabase ya tiene uuid-ossp habilitado)
 -- CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -185,6 +201,19 @@ CREATE TRIGGER update_transacciones_updated_at
     BEFORE UPDATE ON transacciones
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- De la migración 002: las deudas tienen updated_at pero no tenían trigger,
+-- así que en un proyecto creado solo con este script la fecha no cambiaba
+-- al abonar, a diferencia de producción (ADM-13).
+DROP TRIGGER IF EXISTS update_deudas_cajas_updated_at ON deudas_cajas;
+CREATE TRIGGER update_deudas_cajas_updated_at
+    BEFORE UPDATE ON deudas_cajas
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_deudas_terceros_updated_at ON deudas_terceros;
+CREATE TRIGGER update_deudas_terceros_updated_at
+    BEFORE UPDATE ON deudas_terceros
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- =====================================================
 -- 5. ROW LEVEL SECURITY (RLS)
 -- Solo usuarios autenticados. La anon key viaja en el bundle JS
@@ -201,10 +230,31 @@ ALTER TABLE categorias       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE deudas_cajas     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE deudas_terceros  ENABLE ROW LEVEL SECURITY;
 
+-- Primero se quita CUALQUIER política previa de estas tablas (igual que el
+-- paso 1 de la migración 001). Si este script se corre sobre una base que
+-- tenía las políticas públicas del setup original, quedarían vivas junto a
+-- las nuevas y la base seguiría abierta a la anon key.
+DO $$
+DECLARE
+  pol RECORD;
+BEGIN
+  FOR pol IN
+    SELECT policyname, tablename
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename IN (
+        'empresas', 'proyectos', 'cajas', 'terceros',
+        'transacciones', 'categorias', 'deudas_cajas', 'deudas_terceros'
+      )
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', pol.policyname, pol.tablename);
+  END LOOP;
+END $$;
+
 -- Politicas CRUD para el rol `authenticated` sobre todas las tablas.
 -- Hoy todos los usuarios autenticados comparten el mismo conjunto de datos.
 -- Si mas adelante hace falta separar por empresa o por rol, el punto de
--- cambio es exactamente este bloque.
+-- cambio es exactamente este bloque (plan en docs/SEGURIDAD.md, ADM-11).
 DO $$
 DECLARE
   t TEXT;
@@ -234,78 +284,75 @@ END $$;
 -- 6. DATOS INICIALES - EMPRESAS
 -- =====================================================
 
-INSERT INTO empresas (nombre, nit) VALUES 
-  ('MAVICOL SAS', NULL),
-  ('PROEXI SAS', NULL),
-  ('CONSTRUCTORA 360 SAS', NULL),
-  ('UT MEDICINA INTERNA', NULL),
-  ('UT ORU 2020', NULL)
-ON CONFLICT (nit) DO NOTHING;
+-- Idempotente por nombre (ADM-14). Antes era ON CONFLICT (nit) DO NOTHING,
+-- que nunca actuaba: las semillas llevan nit NULL y en un UNIQUE dos NULL no
+-- chocan. Cada re-ejecución creaba 5 empresas, 10 cajas y 11 obras más.
+INSERT INTO empresas (nombre)
+SELECT v.nombre
+FROM (VALUES
+  ('MAVICOL SAS'),
+  ('PROEXI SAS'),
+  ('CONSTRUCTORA 360 SAS'),
+  ('UT MEDICINA INTERNA'),
+  ('UT ORU 2020')
+) AS v(nombre)
+WHERE NOT EXISTS (SELECT 1 FROM empresas e WHERE e.nombre = v.nombre);
 
 -- =====================================================
 -- 7. DATOS INICIALES - CAJAS (basado en tu Excel)
 -- =====================================================
 
--- Usar CTEs para obtener IDs de empresas
-WITH empresa_mavicol AS (SELECT id FROM empresas WHERE nombre = 'MAVICOL SAS' LIMIT 1),
-     empresa_proexi AS (SELECT id FROM empresas WHERE nombre = 'PROEXI SAS' LIMIT 1),
-     empresa_360 AS (SELECT id FROM empresas WHERE nombre = 'CONSTRUCTORA 360 SAS' LIMIT 1),
-     empresa_medicina AS (SELECT id FROM empresas WHERE nombre = 'UT MEDICINA INTERNA' LIMIT 1),
-     empresa_oru AS (SELECT id FROM empresas WHERE nombre = 'UT ORU 2020' LIMIT 1)
-
-INSERT INTO cajas (nombre, tipo, empresa_id, saldo_actual) 
-SELECT 'Caja Rubén', 'Efectivo', id, 0 FROM empresa_mavicol
-UNION ALL
-SELECT 'Caja 24/7', 'Efectivo', id, 0 FROM empresa_mavicol
-UNION ALL
-SELECT 'Banco MAVICOL', 'Banco', id, 0 FROM empresa_mavicol
-UNION ALL
-SELECT 'Tarjeta Crédito MAVICOL', 'Tarjeta', id, 0 FROM empresa_mavicol
-UNION ALL
-SELECT 'Caja PROEXI', 'Efectivo', id, 0 FROM empresa_proexi
-UNION ALL
-SELECT 'Mantenimiento PROEXI', 'Efectivo', id, 0 FROM empresa_proexi
-UNION ALL
-SELECT 'Caja 360 SAS', 'Efectivo', id, 0 FROM empresa_360
-UNION ALL
-SELECT 'Caja Hospital', 'Efectivo', id, 0 FROM empresa_medicina
-UNION ALL
-SELECT 'Caja UT ORU', 'Efectivo', id, 0 FROM empresa_oru
-UNION ALL
-SELECT 'Caja Saneamiento', 'Efectivo', id, 0 FROM empresa_oru;
+-- Una caja de la semilla se inserta solo si no hay ya una caja con ese
+-- nombre (aunque alguien la haya movido de empresa). La empresa se toma de
+-- forma estable (la más antigua con ese nombre).
+INSERT INTO cajas (nombre, tipo, empresa_id, saldo_actual)
+SELECT v.nombre, v.tipo, emp.id, 0
+FROM (VALUES
+  ('Caja Rubén',              'Efectivo', 'MAVICOL SAS'),
+  ('Caja 24/7',               'Efectivo', 'MAVICOL SAS'),
+  ('Banco MAVICOL',           'Banco',    'MAVICOL SAS'),
+  ('Tarjeta Crédito MAVICOL', 'Tarjeta',  'MAVICOL SAS'),
+  ('Caja PROEXI',             'Efectivo', 'PROEXI SAS'),
+  ('Mantenimiento PROEXI',    'Efectivo', 'PROEXI SAS'),
+  ('Caja 360 SAS',            'Efectivo', 'CONSTRUCTORA 360 SAS'),
+  ('Caja Hospital',           'Efectivo', 'UT MEDICINA INTERNA'),
+  ('Caja UT ORU',             'Efectivo', 'UT ORU 2020'),
+  ('Caja Saneamiento',        'Efectivo', 'UT ORU 2020')
+) AS v(nombre, tipo, empresa)
+CROSS JOIN LATERAL (
+  SELECT e.id FROM empresas e
+  WHERE e.nombre = v.empresa
+  ORDER BY e.created_at, e.id
+  LIMIT 1
+) AS emp
+WHERE NOT EXISTS (SELECT 1 FROM cajas c WHERE c.nombre = v.nombre);
 
 -- =====================================================
 -- 8. DATOS INICIALES - PROYECTOS (basado en tu Excel)
 -- =====================================================
 
-WITH empresa_mavicol AS (SELECT id FROM empresas WHERE nombre = 'MAVICOL SAS' LIMIT 1),
-     empresa_proexi AS (SELECT id FROM empresas WHERE nombre = 'PROEXI SAS' LIMIT 1),
-     empresa_360 AS (SELECT id FROM empresas WHERE nombre = 'CONSTRUCTORA 360 SAS' LIMIT 1),
-     empresa_medicina AS (SELECT id FROM empresas WHERE nombre = 'UT MEDICINA INTERNA' LIMIT 1),
-     empresa_oru AS (SELECT id FROM empresas WHERE nombre = 'UT ORU 2020' LIMIT 1)
-
-INSERT INTO proyectos (nombre, empresa_id, estado) 
-SELECT 'Proyecto Infraestructura Educativa', id, 'Activo' FROM empresa_mavicol
-UNION ALL
-SELECT 'Obra Pavimentación', id, 'Activo' FROM empresa_mavicol
-UNION ALL
-SELECT 'Universidad Catatumbo', id, 'Activo' FROM empresa_mavicol
-UNION ALL
-SELECT 'Proyecto Suministro Cemento y Zinc', id, 'Activo' FROM empresa_proexi
-UNION ALL
-SELECT 'Proyecto Suministro Tubería', id, 'Activo' FROM empresa_proexi
-UNION ALL
-SELECT 'Consorcio CVMAV', id, 'Activo' FROM empresa_360
-UNION ALL
-SELECT 'Hospital 24/7', id, 'Activo' FROM empresa_medicina
-UNION ALL
-SELECT 'Vías Terciarias', id, 'Activo' FROM empresa_oru
-UNION ALL
-SELECT 'Vías El Tarra', id, 'Activo' FROM empresa_oru
-UNION ALL
-SELECT 'UT Saneamiento Básico', id, 'Activo' FROM empresa_oru
-UNION ALL
-SELECT 'UT Hacari 2019', id, 'Activo' FROM empresa_oru;
+INSERT INTO proyectos (nombre, empresa_id, estado)
+SELECT v.nombre, emp.id, 'Activo'
+FROM (VALUES
+  ('Proyecto Infraestructura Educativa', 'MAVICOL SAS'),
+  ('Obra Pavimentación',                 'MAVICOL SAS'),
+  ('Universidad Catatumbo',              'MAVICOL SAS'),
+  ('Proyecto Suministro Cemento y Zinc', 'PROEXI SAS'),
+  ('Proyecto Suministro Tubería',        'PROEXI SAS'),
+  ('Consorcio CVMAV',                    'CONSTRUCTORA 360 SAS'),
+  ('Hospital 24/7',                      'UT MEDICINA INTERNA'),
+  ('Vías Terciarias',                    'UT ORU 2020'),
+  ('Vías El Tarra',                      'UT ORU 2020'),
+  ('UT Saneamiento Básico',              'UT ORU 2020'),
+  ('UT Hacari 2019',                     'UT ORU 2020')
+) AS v(nombre, empresa)
+CROSS JOIN LATERAL (
+  SELECT e.id FROM empresas e
+  WHERE e.nombre = v.empresa
+  ORDER BY e.created_at, e.id
+  LIMIT 1
+) AS emp
+WHERE NOT EXISTS (SELECT 1 FROM proyectos p WHERE p.nombre = v.nombre);
 
 -- =====================================================
 -- 9. DATOS INICIALES - CATEGORÍAS
@@ -330,70 +377,53 @@ INSERT INTO categorias (nombre, tipo, icono, color) VALUES
 ON CONFLICT (nombre) DO NOTHING;
 
 -- =====================================================
--- 10. STORAGE BUCKET PARA SOPORTES (FOTOS)
--- Esto se debe crear desde el Dashboard de Supabase
--- Storage > New Bucket > "soportes" (público)
+-- 10. STORAGE: BUCKET Y POLÍTICAS PARA SOPORTES (FOTOS)
 -- =====================================================
+-- Antes esto se hacía a mano en el dashboard y faltaban las políticas de la
+-- migración 001: en un proyecto nuevo, subir un soporte fallaba con "new row
+-- violates row-level security policy" aunque el bucket fuera público
+-- (storage.objects tiene RLS activa y subir exige una política INSERT).
+-- Ahora el proyecto de pruebas queda igual a producción (ADM-13).
 
--- NOTA: Para crear el bucket de almacenamiento:
--- 1. Ve a Storage en el dashboard de Supabase
--- 2. Clic en "New bucket"
--- 3. Nombre: "soportes"
--- 4. Marca "Public bucket"
---
--- PENDIENTE (deuda conocida): el bucket es público, así que cualquiera con la
--- URL exacta de una foto puede verla. Las URLs son largas y aleatorias, pero
--- eso es seguridad por oscuridad, no control de acceso.
--- El arreglo correcto es un bucket privado + URLs firmadas, lo que exige
--- guardar en `transacciones.soporte_url` la RUTA del archivo en vez de la URL
--- pública, y firmarla al momento de mostrarla. Está en el backlog porque
--- rompe los soportes ya guardados y necesita una migración de datos.
+-- Bucket público, igual que producción por ahora.
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('soportes', 'soportes', true)
+ON CONFLICT (id) DO NOTHING;
 
--- =====================================================
--- 11. VISTAS ÚTILES
--- =====================================================
+-- Políticas de la migración 001 (bloque 4): solo usuarios autenticados.
+DROP POLICY IF EXISTS "soportes_public_read"   ON storage.objects;
+DROP POLICY IF EXISTS "soportes_public_insert" ON storage.objects;
+DROP POLICY IF EXISTS "soportes_auth_read"     ON storage.objects;
+DROP POLICY IF EXISTS "soportes_auth_insert"   ON storage.objects;
 
--- Vista de saldo por empresa
-CREATE OR REPLACE VIEW v_saldo_por_empresa AS
-SELECT 
-  e.id,
-  e.nombre,
-  COALESCE(SUM(c.saldo_actual), 0) as saldo_total
-FROM empresas e
-LEFT JOIN cajas c ON c.empresa_id = e.id
-GROUP BY e.id, e.nombre;
+CREATE POLICY "soportes_auth_read" ON storage.objects
+  FOR SELECT TO authenticated
+  USING (bucket_id = 'soportes');
 
--- Vista de gastos por proyecto
-CREATE OR REPLACE VIEW v_gastos_por_proyecto AS
-SELECT 
-  p.id,
-  p.nombre,
-  p.empresa_id,
-  e.nombre as empresa_nombre,
-  COALESCE(SUM(CASE WHEN t.tipo_movimiento = 'EGRESO' THEN t.monto ELSE 0 END), 0) as total_egresos,
-  COALESCE(SUM(CASE WHEN t.tipo_movimiento = 'INGRESO' THEN t.monto ELSE 0 END), 0) as total_ingresos
-FROM proyectos p
-LEFT JOIN empresas e ON e.id = p.empresa_id
-LEFT JOIN transacciones t ON t.proyecto_id = p.id
-GROUP BY p.id, p.nombre, p.empresa_id, e.nombre;
+CREATE POLICY "soportes_auth_insert" ON storage.objects
+  FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'soportes');
 
--- Vista de préstamos entre cajas (deudas)
-CREATE OR REPLACE VIEW v_prestamos_entre_cajas AS
-SELECT 
-  co.nombre as caja_origen,
-  cd.nombre as caja_destino,
-  SUM(t.monto) as monto_prestado,
-  COUNT(*) as num_prestamos
-FROM transacciones t
-JOIN cajas co ON co.id = t.caja_origen_id
-JOIN cajas cd ON cd.id = t.caja_destino_id
-WHERE t.tipo_movimiento = 'TRANSFERENCIA'
-  AND t.categoria = 'Préstamo'
-GROUP BY co.nombre, cd.nombre
-HAVING SUM(t.monto) > 0;
+-- PENDIENTE (deuda conocida, C16): el bucket es público, así que cualquiera
+-- con la URL exacta de una foto puede verla sin iniciar sesión. El arreglo es
+-- un bucket privado + URLs firmadas, que exige guardar en
+-- `transacciones.soporte_url` la RUTA del archivo en vez de la URL pública.
+-- Plan y riesgos en docs/SEGURIDAD.md.
 
 -- =====================================================
--- ¡LISTO! Base de datos configurada
+-- 11. VISTAS
+-- =====================================================
+-- El setup original creaba v_saldo_por_empresa, v_gastos_por_proyecto y
+-- v_prestamos_entre_cajas sin security_invoker: saltaban RLS y se podían leer
+-- solo con la anon key. La app no las usa; la migración 003 las elimina y
+-- aquí se borran por si este script corre sobre una base que las tenía.
+-- Una vista nueva debe llevar WITH (security_invoker = true).
+DROP VIEW IF EXISTS public.v_prestamos_entre_cajas;
+DROP VIEW IF EXISTS public.v_gastos_por_proyecto;
+DROP VIEW IF EXISTS public.v_saldo_por_empresa;
+
+-- =====================================================
+-- LISTO. Base de datos configurada
 -- =====================================================
 
 -- Para verificar que todo se creó correctamente:
@@ -401,6 +431,21 @@ HAVING SUM(t.monto) > 0;
 -- SELECT * FROM cajas;
 -- SELECT * FROM proyectos;
 -- SELECT * FROM categorias;
+--
+-- Ninguna política abierta al rol anónimo (debe devolver 0 filas):
+--   SELECT schemaname, tablename, policyname, roles
+--   FROM pg_policies
+--   WHERE schemaname IN ('public', 'storage')
+--     AND ('anon' = ANY(roles) OR roles = '{public}');
+--
+-- Políticas del bucket de soportes (debe devolver 2 filas):
+--   SELECT policyname FROM pg_policies
+--   WHERE schemaname = 'storage' AND tablename = 'objects'
+--     AND policyname IN ('soportes_auth_read', 'soportes_auth_insert');
+--
+-- Triggers de updated_at (debe devolver 7 filas):
+--   SELECT tgname FROM pg_trigger
+--   WHERE tgname LIKE 'update\_%\_updated\_at' AND NOT tgisinternal;
 
 -- =====================================================
 -- 12. MIGRACIÓN: AGREGAR COLUMNAS DE TRACKING DE USUARIO

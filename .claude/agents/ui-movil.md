@@ -39,8 +39,11 @@ componentes**: si necesitas una regla (efecto en saldos, estado de una deuda),
 
 ## Reglas de estilo
 
-- Usa los tokens de `src/index.css` (`--bg-card`, `--border-subtle`,
-  `--text-muted`...). No escribas `rgba(255,255,255,0.06)` en `style={{}}`.
+- Sigue `docs/DISENO.md` ("Libro de obra"): tokens como utilidades de
+  Tailwind (`text-ink`, `bg-surface`, `border-line`, `text-pos`...) y clases
+  base de `src/index.css` (`.card`, `.kpi-strip`, `.ledger`, `.chip`,
+  `.segmented`...). No escribas `rgba()`, `#hex`, `text-white` ni
+  `text-gray-*` en componentes: hay tema día y noche.
 - Nada de emojis en la interfaz ni en mensajes.
 - Iconos solo de `lucide-react`; no flechas unicode (`→`, `↔`).
 - Gradientes y `backdrop-filter`: evítalos salvo que el elemento lo necesite.
@@ -56,9 +59,8 @@ componentes**: si necesitas una regla (efecto en saldos, estado de una deuda),
 
 - Cada input con `<label>` asociado.
 - Botones de solo icono con `aria-label`.
-- Contraste suficiente: el texto gris sobre fondo oscuro de hoy
-  (`--text-muted: #4b5975` sobre `#0b1120`) no llega. No lo uses para
-  información importante.
+- Contraste suficiente en los dos temas: `text-ink-3` es para rótulos y
+  datos secundarios, nunca para información importante.
 
 ## Verificación
 

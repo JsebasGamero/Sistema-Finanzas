@@ -74,6 +74,15 @@ sincronizar. Arregla la app en el mismo cambio o no agregues el CHECK.
 El setup debe producir el mismo esquema que setup antiguo + todas las
 migraciones. Edita la definición de la tabla ahí también.
 
+## 6b. Reflejar en el esquema de pruebas
+
+Si la migración cambia tablas, columnas, CHECK o índices, aplica el mismo
+cambio en `supabase/esquema_pruebas.sql` (con `pruebas.` delante de cada
+tabla) y entrega también la versión para el esquema `pruebas`, para correrla
+en el proyecto real. Si no, la cuenta de pruebas (opción A de
+`docs/ENTORNOS.md`) empieza a fallar con columnas que no existen. Nunca
+toques `public` desde ese archivo.
+
 ## 7. Avisar a sync
 
 Si la app debe leer o escribir la columna nueva, `prepareForSupabase()` en

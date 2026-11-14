@@ -1,281 +1,213 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { crearEditarMovimiento } from './editarMovimiento';
-import { MovimientoInvalidoError } from '../../domain/errores';
+import {
+    MovimientoDeDeudaError,
+    MovimientoInvalidoError,
+    MovimientoNoEncontradoError,
+} from '../../domain/errores';
+import { crearDobles } from './doblesEnMemoria';
 
-function crearDobles(log) {
-    const transacciones = {
-        async actualizar(id, cambios) {
-            log.push({ metodo: 'transacciones.actualizar', args: { id, cambios } });
-            return { id, ...cambios };
-        },
-    };
+const FECHA = '2026-09-20';
+const AHORA = '2026-09-25T00:00:00.000Z';
 
-    const aplicadorDeAjustes = {
-        async aplicar(ajustes, opciones) {
-            log.push({ metodo: 'aplicadorDeAjustes.aplicar', args: { ajustes, opciones } });
-            return [];
-        },
-    };
-
-    const outbox = {
-        async encolar(tabla, operacion, datos) {
-            log.push({ metodo: 'outbox.encolar', args: { tabla, operacion, datos } });
-        },
-    };
-
-    const sincronizador = {
-        async sincronizarAhora() {
-            log.push({ metodo: 'sincronizador.sincronizarAhora', args: undefined });
-        },
-    };
-
-    return { transacciones, aplicadorDeAjustes, outbox, sincronizador };
-}
+const egreso = (id, monto, extra = {}) => ({
+    id,
+    tipo_movimiento: 'EGRESO',
+    fecha: FECHA,
+    monto,
+    caja_origen_id: 'A',
+    sincronizado: true,
+    ...extra,
+});
 
 describe('editarMovimiento', () => {
-    let log;
     let dobles;
-    let ahora;
+    let editarMovimiento;
 
-    beforeEach(() => {
-        log = [];
-        dobles = crearDobles(log);
-        ahora = () => '2026-09-25T00:00:00.000Z';
+    function preparar(filas, saldos = { A: 10000, B: 5000, C: 0, D: 0 }) {
+        dobles = crearDobles({ transacciones: filas, saldos });
+        editarMovimiento = crearEditarMovimiento({ ...dobles.dependencias, ahora: () => AHORA });
+    }
+
+    beforeEach(() => preparar([egreso('tx-1', 1000)]));
+
+    it('EGRESO editado: relee, ajusta con efectoDeEdicion y encola el UPDATE, todo en la unidad', async () => {
+        const actualizado = { ...egreso('tx-1', 1500) };
+
+        const resultado = await editarMovimiento(egreso('tx-1', 1000), actualizado);
+
+        const cambios = { ...actualizado, sincronizado: false, updated_at: AHORA };
+        expect(resultado).toEqual(cambios);
+        expect(dobles.log).toEqual([
+            { metodo: 'unidadDeTrabajo.inicio' },
+            { metodo: 'transacciones.obtener', args: { id: 'tx-1' } },
+            {
+                metodo: 'aplicadorDeAjustes.aplicar',
+                args: {
+                    ajustes: [{ cajaId: 'A', delta: 1000 }, { cajaId: 'A', delta: -1500 }],
+                    opciones: { payload: 'parcial' },
+                },
+            },
+            { metodo: 'transacciones.actualizar', args: { id: 'tx-1', cambios } },
+            {
+                metodo: 'outbox.encolar',
+                args: { tabla: 'transacciones', operacion: 'UPDATE', datos: cambios },
+            },
+            { metodo: 'unidadDeTrabajo.commit' },
+            { metodo: 'sincronizador.sincronizarAhora' },
+        ]);
+        expect(dobles.estado.saldos.A).toBe(9500);
     });
 
-    it('EGRESO editado: ajustes de efectoDeEdicion, UPDATE con updated_at', async () => {
-        const editarMovimiento = crearEditarMovimiento({ ...dobles, ahora });
+    it('marca sincronizado: false aunque la fila viniera sincronizada (C21)', async () => {
+        const resultado = await editarMovimiento(egreso('tx-1', 1000), egreso('tx-1', 1200, { sincronizado: true }));
 
-        const original = {
-            id: 'tx-1',
-            tipo_movimiento: 'EGRESO',
-            monto: 1000,
-            caja_origen_id: 'A',
-        };
-        const actualizado = {
-            tipo_movimiento: 'EGRESO',
-            monto: 1500,
-            caja_origen_id: 'A',
-        };
+        expect(resultado.sincronizado).toBe(false);
+        expect(dobles.estado.transacciones['tx-1'].sincronizado).toBe(false);
+    });
 
-        const resultado = await editarMovimiento(original, actualizado);
+    it('calcula el efecto con la fila guardada, no con la copia vieja de la pantalla (MOV-4)', async () => {
+        // En la base ya está en 1000; la pantalla todavía muestra 800.
+        const copiaVieja = egreso('tx-1', 800);
 
-        expect(resultado).toEqual({
-            id: 'tx-1',
-            tipo_movimiento: 'EGRESO',
-            monto: 1500,
-            caja_origen_id: 'A',
-            updated_at: '2026-09-25T00:00:00.000Z',
-        });
+        await editarMovimiento(copiaVieja, egreso('tx-1', 1500));
 
-        expect(log[0]).toEqual({
-            metodo: 'aplicadorDeAjustes.aplicar',
-            args: {
-                ajustes: [
-                    { cajaId: 'A', delta: 1000 },
-                    { cajaId: 'A', delta: -1500 },
-                ],
-                opciones: { payload: 'parcial' },
-            },
-        });
-        expect(log[1]).toEqual({
-            metodo: 'transacciones.actualizar',
-            args: {
-                id: 'tx-1',
-                cambios: {
-                    tipo_movimiento: 'EGRESO',
-                    monto: 1500,
-                    caja_origen_id: 'A',
-                    updated_at: '2026-09-25T00:00:00.000Z',
-                },
-            },
-        });
-        expect(log[2]).toEqual({
-            metodo: 'outbox.encolar',
-            args: {
-                tabla: 'transacciones',
-                operacion: 'UPDATE',
-                datos: {
-                    id: 'tx-1',
-                    tipo_movimiento: 'EGRESO',
-                    monto: 1500,
-                    caja_origen_id: 'A',
-                    updated_at: '2026-09-25T00:00:00.000Z',
-                },
-            },
-        });
-        expect(log[3].metodo).toBe('sincronizador.sincronizarAhora');
+        expect(dobles.log[2].args.ajustes).toEqual([
+            { cajaId: 'A', delta: 1000 },
+            { cajaId: 'A', delta: -1500 },
+        ]);
+        expect(dobles.estado.saldos.A).toBe(9500);
     });
 
     it('INGRESO editado: ajustes correctos', async () => {
-        const editarMovimiento = crearEditarMovimiento({ ...dobles, ahora });
+        preparar([{ id: 'tx-2', tipo_movimiento: 'INGRESO', fecha: FECHA, monto: 1000, caja_origen_id: 'A' }]);
 
-        const original = {
-            id: 'tx-2',
-            tipo_movimiento: 'INGRESO',
-            monto: 1000,
-            caja_origen_id: 'A',
-        };
-        const actualizado = { tipo_movimiento: 'INGRESO', monto: 800, caja_origen_id: 'A' };
+        await editarMovimiento({ id: 'tx-2' }, { tipo_movimiento: 'INGRESO', fecha: FECHA, monto: 800, caja_origen_id: 'A' });
 
-        await editarMovimiento(original, actualizado);
-
-        expect(log[0].args.ajustes).toEqual([
+        expect(dobles.log[2].args.ajustes).toEqual([
             { cajaId: 'A', delta: -1000 },
             { cajaId: 'A', delta: 800 },
         ]);
     });
 
     it('TRANSFERENCIA editada: efectoDeEdicion produce 4 entradas', async () => {
-        const editarMovimiento = crearEditarMovimiento({ ...dobles, ahora });
+        preparar([{
+            id: 'tx-3', tipo_movimiento: 'TRANSFERENCIA', fecha: FECHA, monto: 1000, caja_origen_id: 'A', caja_destino_id: 'B',
+        }]);
 
-        const original = {
-            id: 'tx-3',
-            tipo_movimiento: 'TRANSFERENCIA',
-            monto: 1000,
-            caja_origen_id: 'A',
-            caja_destino_id: 'B',
-        };
-        const actualizado = {
-            tipo_movimiento: 'TRANSFERENCIA',
-            monto: 500,
-            caja_origen_id: 'C',
-            caja_destino_id: 'D',
-        };
+        await editarMovimiento({ id: 'tx-3' }, {
+            tipo_movimiento: 'TRANSFERENCIA', fecha: FECHA, monto: 500, caja_origen_id: 'C', caja_destino_id: 'D',
+        });
 
-        await editarMovimiento(original, actualizado);
-
-        expect(log[0].args.ajustes).toEqual([
+        expect(dobles.log[2].args.ajustes).toEqual([
             { cajaId: 'A', delta: 1000 },
             { cajaId: 'B', delta: -1000 },
             { cajaId: 'C', delta: -500 },
             { cajaId: 'D', delta: 500 },
         ]);
+        expect(dobles.estado.saldos).toEqual({ A: 11000, B: 4000, C: -500, D: 500 });
     });
 
     it('lleva editado_por en el UPDATE cuando viene en actualizado', async () => {
-        const editarMovimiento = crearEditarMovimiento({ ...dobles, ahora });
-
-        const original = {
-            id: 'tx-4',
-            tipo_movimiento: 'EGRESO',
-            monto: 1000,
-            caja_origen_id: 'A',
-        };
-        const actualizado = {
-            tipo_movimiento: 'EGRESO',
-            monto: 1000,
-            caja_origen_id: 'A',
-            editado_por: 'juan',
-        };
-
-        const resultado = await editarMovimiento(original, actualizado);
+        const resultado = await editarMovimiento(egreso('tx-1', 1000), egreso('tx-1', 1000, { editado_por: 'juan' }));
 
         expect(resultado.editado_por).toBe('juan');
-        expect(log[1].args.cambios.editado_por).toBe('juan');
-        expect(log[2].args.datos.editado_por).toBe('juan');
+        expect(dobles.estado.cola.at(-1).datos.editado_por).toBe('juan');
     });
 
-    it('monto 0 rechaza con MovimientoInvalidoError antes de escribir', async () => {
-        const editarMovimiento = crearEditarMovimiento({ ...dobles, ahora });
+    describe('validación: rechaza sin escribir nada', () => {
+        const casos = [
+            ['monto 0', egreso('tx-1', 0)],
+            ['transferencia sin destino', { tipo_movimiento: 'TRANSFERENCIA', fecha: FECHA, monto: 1000, caja_origen_id: 'A' }],
+            ['cajas iguales', { tipo_movimiento: 'TRANSFERENCIA', fecha: FECHA, monto: 1000, caja_origen_id: 'A', caja_destino_id: 'A' }],
+            ['fecha vacía (MOV-2)', egreso('tx-1', 1000, { fecha: '' })],
+        ];
 
-        const original = {
-            id: 'tx-5',
-            tipo_movimiento: 'EGRESO',
-            monto: 1000,
-            caja_origen_id: 'A',
-        };
-        const actualizado = { tipo_movimiento: 'EGRESO', monto: 0, caja_origen_id: 'A' };
-
-        await expect(editarMovimiento(original, actualizado)).rejects.toBeInstanceOf(
-            MovimientoInvalidoError,
-        );
-        expect(log).toEqual([]);
+        for (const [nombre, actualizado] of casos) {
+            it(nombre, async () => {
+                await expect(editarMovimiento(egreso('tx-1', 1000), actualizado))
+                    .rejects.toBeInstanceOf(MovimientoInvalidoError);
+                expect(dobles.log).toEqual([]);
+            });
+        }
     });
 
-    it('transferencia sin destino rechaza con MovimientoInvalidoError', async () => {
-        const editarMovimiento = crearEditarMovimiento({ ...dobles, ahora });
+    it('si el movimiento ya no existe, rechaza sin tocar saldos (MOV-4)', async () => {
+        preparar([]);
 
-        const original = {
-            id: 'tx-6',
-            tipo_movimiento: 'TRANSFERENCIA',
-            monto: 1000,
-            caja_origen_id: 'A',
-            caja_destino_id: 'B',
-        };
-        const actualizado = {
-            tipo_movimiento: 'TRANSFERENCIA',
-            monto: 1000,
-            caja_origen_id: 'A',
-        };
-
-        await expect(editarMovimiento(original, actualizado)).rejects.toBeInstanceOf(
-            MovimientoInvalidoError,
-        );
-        expect(log).toEqual([]);
+        await expect(editarMovimiento(egreso('tx-1', 1000), egreso('tx-1', 1500)))
+            .rejects.toBeInstanceOf(MovimientoNoEncontradoError);
+        expect(dobles.estado.saldos.A).toBe(10000);
+        expect(dobles.estado.cola).toEqual([]);
     });
 
-    it('cajas iguales en transferencia rechaza con MovimientoInvalidoError', async () => {
-        const editarMovimiento = crearEditarMovimiento({ ...dobles, ahora });
+    describe('movimientos de deuda (C15)', () => {
+        it('rechaza editar un abono a proveedor', async () => {
+            const abono = egreso('tx-9', 300, { categoria: 'Pago Deuda' });
+            preparar([abono]);
 
-        const original = {
-            id: 'tx-7',
-            tipo_movimiento: 'TRANSFERENCIA',
-            monto: 1000,
-            caja_origen_id: 'A',
-            caja_destino_id: 'B',
-        };
-        const actualizado = {
-            tipo_movimiento: 'TRANSFERENCIA',
-            monto: 1000,
-            caja_origen_id: 'A',
-            caja_destino_id: 'A',
-        };
+            const error = await editarMovimiento(abono, { ...abono, monto: 400 }).catch((e) => e);
 
-        await expect(editarMovimiento(original, actualizado)).rejects.toBeInstanceOf(
-            MovimientoInvalidoError,
-        );
-        expect(log).toEqual([]);
+            expect(error).toBeInstanceOf(MovimientoDeDeudaError);
+            expect(error).toBeInstanceOf(MovimientoInvalidoError);
+            expect(error.errores[0].codigo).toBe('MOVIMIENTO_DE_DEUDA');
+            expect(dobles.estado.saldos.A).toBe(10000);
+            expect(dobles.estado.transacciones['tx-9'].monto).toBe(300);
+        });
+
+        it('decide con la fila guardada aunque la copia de la pantalla no lo parezca', async () => {
+            preparar([{
+                id: 'tx-8', tipo_movimiento: 'TRANSFERENCIA', fecha: FECHA, monto: 700,
+                caja_origen_id: 'A', caja_destino_id: 'B', categoria: 'Préstamo entre Cajas',
+            }]);
+
+            await expect(editarMovimiento({ id: 'tx-8', categoria: 'Otros' }, egreso('tx-8', 700)))
+                .rejects.toBeInstanceOf(MovimientoDeDeudaError);
+        });
+
+        it('no deja convertir un movimiento normal en un abono (quedaría sin deuda y bloqueado)', async () => {
+            const error = await editarMovimiento(egreso('tx-1', 1000), egreso('tx-1', 1000, { categoria: 'Pago Deuda' }))
+                .catch((e) => e);
+
+            expect(error).toBeInstanceOf(MovimientoInvalidoError);
+            expect(error.errores[0].codigo).toBe('RESERVADO_PARA_DEUDAS');
+            expect(dobles.estado.transacciones['tx-1'].categoria).toBeUndefined();
+        });
+    });
+
+    it('atomicidad (C22): si falla el UPDATE, los saldos vuelven a como estaban', async () => {
+        dobles.fallarEn('transacciones.actualizar');
+
+        await expect(editarMovimiento(egreso('tx-1', 1000), egreso('tx-1', 1500))).rejects.toThrow();
+
+        expect(dobles.estado.saldos.A).toBe(10000);
+        expect(dobles.estado.transacciones['tx-1'].monto).toBe(1000);
+        expect(dobles.estado.cola).toEqual([]);
+        expect(dobles.metodos()).not.toContain('sincronizador.sincronizarAhora');
+    });
+
+    it('dos ediciones seguidas con la misma copia no revierten dos veces el monto viejo', async () => {
+        const copia = egreso('tx-1', 1000);
+        await Promise.all([
+            editarMovimiento(copia, egreso('tx-1', 1500)),
+            editarMovimiento(copia, egreso('tx-1', 1500)),
+        ]);
+
+        // Con la copia, la segunda revertía 1000 en vez de 1500 y dejaba 9000.
+        expect(dobles.estado.saldos.A).toBe(9500);
     });
 
     it('resuelve aunque sincronizarAhora nunca resuelva su promesa', async () => {
-        const dobleColgado = crearDobles(log);
-        dobleColgado.sincronizador = {
-            sincronizarAhora: () => new Promise(() => {}),
-        };
-        const editarMovimiento = crearEditarMovimiento({ ...dobleColgado, ahora });
-
-        const original = {
-            id: 'tx-8',
-            tipo_movimiento: 'EGRESO',
-            monto: 1000,
-            caja_origen_id: 'A',
-        };
-        const actualizado = { tipo_movimiento: 'EGRESO', monto: 1200, caja_origen_id: 'A' };
-
-        const resultado = await editarMovimiento(original, actualizado);
-        expect(resultado.id).toBe('tx-8');
+        dobles.dependencias.sincronizador.sincronizarAhora = () => new Promise(() => {});
+        const resultado = await editarMovimiento(egreso('tx-1', 1000), egreso('tx-1', 1200));
+        expect(resultado.id).toBe('tx-1');
     });
 
-    it('no propaga si sincronizarAhora rechaza (se captura)', async () => {
-        const dobleFalla = crearDobles(log);
-        dobleFalla.sincronizador = {
-            async sincronizarAhora() {
-                throw new Error('sin red');
-            },
+    it('no propaga si sincronizarAhora rechaza', async () => {
+        dobles.dependencias.sincronizador.sincronizarAhora = async () => {
+            throw new Error('sin red');
         };
-        const editarMovimiento = crearEditarMovimiento({ ...dobleFalla, ahora });
-
-        const original = {
-            id: 'tx-9',
-            tipo_movimiento: 'EGRESO',
-            monto: 1000,
-            caja_origen_id: 'A',
-        };
-        const actualizado = { tipo_movimiento: 'EGRESO', monto: 1200, caja_origen_id: 'A' };
-
-        await expect(editarMovimiento(original, actualizado)).resolves.toEqual(
-            expect.objectContaining({ id: 'tx-9' }),
-        );
+        await expect(editarMovimiento(egreso('tx-1', 1000), egreso('tx-1', 1200)))
+            .resolves.toEqual(expect.objectContaining({ id: 'tx-1' }));
     });
 });

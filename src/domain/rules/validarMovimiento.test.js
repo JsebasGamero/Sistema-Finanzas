@@ -1,20 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { validarMovimiento } from './validarMovimiento';
 
+const FECHA = '2026-03-15';
+
 describe('validarMovimiento', () => {
     it('un INGRESO válido no produce errores', () => {
-        const mov = { tipo_movimiento: 'INGRESO', monto: 1000, caja_origen_id: 'A' };
+        const mov = { tipo_movimiento: 'INGRESO', fecha: FECHA, monto: 1000, caja_origen_id: 'A' };
         expect(validarMovimiento(mov)).toEqual([]);
     });
 
     it('un EGRESO válido no produce errores', () => {
-        const mov = { tipo_movimiento: 'EGRESO', monto: 1000, caja_origen_id: 'A' };
+        const mov = { tipo_movimiento: 'EGRESO', fecha: FECHA, monto: 1000, caja_origen_id: 'A' };
         expect(validarMovimiento(mov)).toEqual([]);
     });
 
     it('una TRANSFERENCIA válida no produce errores', () => {
         const mov = {
             tipo_movimiento: 'TRANSFERENCIA',
+            fecha: FECHA,
             monto: 1000,
             caja_origen_id: 'A',
             caja_destino_id: 'B',
@@ -55,7 +58,7 @@ describe('validarMovimiento', () => {
     });
 
     it('acepta el monto como string numérico', () => {
-        const mov = { tipo_movimiento: 'INGRESO', monto: '1500', caja_origen_id: 'A' };
+        const mov = { tipo_movimiento: 'INGRESO', fecha: FECHA, monto: '1500', caja_origen_id: 'A' };
         expect(validarMovimiento(mov)).toEqual([]);
     });
 
@@ -95,13 +98,13 @@ describe('validarMovimiento', () => {
     });
 
     it('no exige caja_destino_id en un INGRESO', () => {
-        const mov = { tipo_movimiento: 'INGRESO', monto: 1000, caja_origen_id: 'A' };
+        const mov = { tipo_movimiento: 'INGRESO', fecha: FECHA, monto: 1000, caja_origen_id: 'A' };
         const errores = validarMovimiento(mov);
         expect(errores.some((e) => e.campo === 'caja_destino_id')).toBe(false);
     });
 
     it('no exige caja_destino_id en un EGRESO', () => {
-        const mov = { tipo_movimiento: 'EGRESO', monto: 1000, caja_origen_id: 'A' };
+        const mov = { tipo_movimiento: 'EGRESO', fecha: FECHA, monto: 1000, caja_origen_id: 'A' };
         const errores = validarMovimiento(mov);
         expect(errores.some((e) => e.campo === 'caja_destino_id')).toBe(false);
     });
@@ -110,5 +113,38 @@ describe('validarMovimiento', () => {
         const mov = { tipo_movimiento: 'OTRO', monto: 0 };
         const errores = validarMovimiento(mov);
         expect(errores.length).toBeGreaterThanOrEqual(3);
+    });
+
+    describe('fecha (bug MOV-2)', () => {
+        const base = { tipo_movimiento: 'EGRESO', monto: 1000, caja_origen_id: 'A' };
+        const codigosDeFecha = (mov) => validarMovimiento(mov)
+            .filter((e) => e.campo === 'fecha')
+            .map((e) => e.codigo);
+
+        it('FECHA_REQUERIDA cuando la fecha está vacía (selector borrado)', () => {
+            expect(codigosDeFecha({ ...base, fecha: '' })).toEqual(['FECHA_REQUERIDA']);
+        });
+
+        it('FECHA_REQUERIDA cuando falta la fecha', () => {
+            expect(codigosDeFecha(base)).toEqual(['FECHA_REQUERIDA']);
+            expect(codigosDeFecha({ ...base, fecha: null })).toEqual(['FECHA_REQUERIDA']);
+        });
+
+        it('FECHA_INVALIDA cuando el día no existe', () => {
+            expect(codigosDeFecha({ ...base, fecha: '2026-02-30' })).toEqual(['FECHA_INVALIDA']);
+            expect(codigosDeFecha({ ...base, fecha: '2026-13-01' })).toEqual(['FECHA_INVALIDA']);
+        });
+
+        it('FECHA_INVALIDA cuando no es YYYY-MM-DD', () => {
+            expect(codigosDeFecha({ ...base, fecha: '15/03/2026' })).toEqual(['FECHA_INVALIDA']);
+            expect(codigosDeFecha({ ...base, fecha: '2026-03-15T10:00:00.000Z' })).toEqual(['FECHA_INVALIDA']);
+            expect(codigosDeFecha({ ...base, fecha: 20260315 })).toEqual(['FECHA_INVALIDA']);
+        });
+
+        it('acepta un día real, incluido el 29 de febrero de un año bisiesto', () => {
+            expect(codigosDeFecha({ ...base, fecha: '2026-03-15' })).toEqual([]);
+            expect(codigosDeFecha({ ...base, fecha: '2028-02-29' })).toEqual([]);
+            expect(codigosDeFecha({ ...base, fecha: '2027-02-29' })).toEqual(['FECHA_INVALIDA']);
+        });
     });
 });
