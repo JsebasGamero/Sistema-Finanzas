@@ -1,255 +1,334 @@
-// LoginScreen - Email/Password login with Supabase Auth
-import { useState } from 'react';
-import { Coins, Mail, Lock, Eye, EyeOff, LogIn, KeyRound, ArrowLeft, Loader2 } from 'lucide-react';
+// Pantalla de acceso: entrar con correo y contraseña, pedir el enlace de
+// recuperación o, en un entorno sin base de datos, entrar en modo local.
+import { useId, useRef, useState } from 'react';
+import { ArrowLeft, CircleAlert, CircleCheck, FlaskConical, LoaderCircle } from 'lucide-react';
+import { useAuth } from '../context/useAuth';
+import { SUPABASE_HABILITADO } from '../services/entorno';
+import CampoContrasena from './CampoContrasena';
+import PantallaAcceso from './PantallaAcceso';
 
-export default function LoginScreen({ onLogin }) {
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [showPassword, setShowPassword] = useState(false);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
-    const [mode, setMode] = useState('login'); // 'login' | 'forgot'
-    const [resetSent, setResetSent] = useState(false);
+const SIN_CONFIGURACION =
+    'Esta instalación no tiene conexión configurada con el servidor. Avisa al administrador.';
 
-    async function handleLogin(e) {
-        e.preventDefault();
-        if (!email || !password) return;
+function sinRed() {
+    return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
 
-        setLoading(true);
-        setError('');
-
-        try {
-            await onLogin(email, password);
-        } catch (err) {
-            console.error('Login error:', err);
-            if (err.message?.includes('Invalid login credentials')) {
-                setError('Correo o contraseña incorrectos');
-            } else if (err.message?.includes('Email not confirmed')) {
-                setError('Debes confirmar tu correo electrónico');
-            } else if (!navigator.onLine) {
-                setError('Sin conexión a internet');
-            } else {
-                setError('Error al iniciar sesión. Intenta de nuevo.');
-            }
-        } finally {
-            setLoading(false);
-        }
+// Mensajes para la persona, no códigos: qué pasó y qué hacer.
+function mensajeErrorAlEntrar(error) {
+    const texto = error?.message || '';
+    if (!SUPABASE_HABILITADO) return SIN_CONFIGURACION;
+    if (sinRed()) return 'Sin conexión a internet. Conéctate para entrar.';
+    if (/invalid login credentials/i.test(texto)) return 'Correo o contraseña incorrectos.';
+    if (/email not confirmed/i.test(texto)) {
+        return 'Tu correo todavía no está confirmado. Busca el mensaje de confirmación en tu bandeja de entrada.';
     }
+    if (error?.status === 429 || /rate limit|too many/i.test(texto)) {
+        return 'Demasiados intentos seguidos. Espera unos minutos e intenta de nuevo.';
+    }
+    if (/failed to fetch|network/i.test(texto)) {
+        return 'No se pudo conectar con el servidor. Revisa la conexión e intenta de nuevo.';
+    }
+    return 'No se pudo iniciar sesión. Intenta de nuevo.';
+}
 
-    async function handleForgotPassword(e) {
+function mensajeErrorAlRecuperar(error) {
+    const texto = error?.message || '';
+    if (!SUPABASE_HABILITADO) return SIN_CONFIGURACION;
+    if (sinRed()) return 'Sin conexión a internet. Conéctate para pedir el enlace.';
+    if (error?.status === 429 || /rate limit|too many|seconds/i.test(texto)) {
+        return 'Ya se pidió un enlace hace poco. Espera un minuto antes de pedir otro.';
+    }
+    return 'No se pudo enviar el correo de recuperación. Intenta de nuevo.';
+}
+
+function ErrorEnLinea({ children }) {
+    if (!children) return null;
+    return (
+        <div role="alert" className="flex items-start gap-2 rounded-md bg-neg-soft px-3 py-2.5 text-sm font-medium text-neg">
+            <CircleAlert size={16} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
+            <span>{children}</span>
+        </div>
+    );
+}
+
+function Encabezado({ id, titulo, subtitulo }) {
+    return (
+        <header>
+            <h1 id={id} className="text-2xl font-bold leading-tight tracking-[-0.02em] text-ink">{titulo}</h1>
+            {subtitulo && <p className="mt-1 text-sm text-ink-2">{subtitulo}</p>}
+        </header>
+    );
+}
+
+function FormularioEntrar({ correo, setCorreo, onLogin, onOlvide }) {
+    const idCorreo = useId();
+    const idContrasena = useId();
+    const [contrasena, setContrasena] = useState('');
+    const [entrando, setEntrando] = useState(false);
+    const [error, setError] = useState('');
+    const refEntrando = useRef(false);
+
+    async function entrar(e) {
         e.preventDefault();
-        if (!email) {
-            setError('Ingresa tu correo electrónico');
+        if (refEntrando.current) return;
+        if (!correo.trim() || !contrasena) {
+            setError('Escribe tu correo y tu contraseña.');
             return;
         }
 
-        setLoading(true);
+        refEntrando.current = true;
+        setEntrando(true);
         setError('');
-
         try {
-            const { supabase } = await import('../services/supabase');
-            const { error } = await supabase.auth.resetPasswordForEmail(email, {
-                redirectTo: window.location.origin
-            });
-            if (error) throw error;
-            setResetSent(true);
+            await onLogin(correo.trim(), contrasena);
+            // Si entra, App deja de mostrar esta pantalla.
         } catch (err) {
-            setError('Error al enviar el correo de recuperación');
+            console.error('Error al iniciar sesión:', err);
+            setError(mensajeErrorAlEntrar(err));
         } finally {
-            setLoading(false);
+            refEntrando.current = false;
+            setEntrando(false);
         }
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center p-5"
-            style={{
-                background: 'radial-gradient(ellipse at 50% 0%, rgba(245,166,35,0.06) 0%, var(--bg-primary) 60%)'
-            }}>
-            <div className="w-full max-w-[420px] animate-fade-in">
-                {/* Logo */}
-                <div className="text-center mb-10">
-                    <div className="inline-flex items-center justify-center w-[72px] h-[72px] rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 mb-5 animate-glow"
-                        style={{ boxShadow: '0 8px 32px rgba(245,166,35,0.25)' }}>
-                        <Coins size={36} className="text-white" />
-                    </div>
-                    <h1 className="text-3xl font-extrabold text-gold tracking-tight">FinanzasObra</h1>
-                    <p className="text-sm mt-1.5" style={{ color: 'var(--text-muted)' }}>
-                        Sistema de Gestión Financiera
+        <form onSubmit={entrar} noValidate className="mt-6 space-y-4">
+            {!SUPABASE_HABILITADO && <ErrorEnLinea>{SIN_CONFIGURACION}</ErrorEnLinea>}
+
+            <div>
+                <label htmlFor={idCorreo} className="label">Correo electrónico</label>
+                <input
+                    id={idCorreo}
+                    type="email"
+                    inputMode="email"
+                    value={correo}
+                    onChange={(e) => { setCorreo(e.target.value); setError(''); }}
+                    className="input-field"
+                    placeholder="nombre@empresa.com"
+                    autoComplete="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    autoFocus
+                    required
+                />
+            </div>
+
+            <CampoContrasena
+                id={idContrasena}
+                etiqueta="Contraseña"
+                value={contrasena}
+                onChange={(e) => { setContrasena(e.target.value); setError(''); }}
+                autoComplete="current-password"
+            />
+
+            <ErrorEnLinea>{error}</ErrorEnLinea>
+
+            <button
+                type="submit"
+                disabled={entrando || !SUPABASE_HABILITADO}
+                className="btn-primary w-full"
+            >
+                {entrando ? (
+                    <>
+                        <LoaderCircle size={18} className="animate-spin" aria-hidden="true" />
+                        Entrando...
+                    </>
+                ) : 'Entrar'}
+            </button>
+
+            <div className="flex justify-center">
+                <button
+                    type="button"
+                    onClick={onOlvide}
+                    className="min-h-11 px-2 text-sm font-semibold text-ink-2 underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink hover:decoration-ink"
+                >
+                    Olvidé mi contraseña
+                </button>
+            </div>
+        </form>
+    );
+}
+
+function FormularioRecuperar({ correo, setCorreo, onVolver }) {
+    const { resetPassword } = useAuth();
+    const idCorreo = useId();
+    const [enviando, setEnviando] = useState(false);
+    const [enviado, setEnviado] = useState(false);
+    const [error, setError] = useState('');
+    const refEnviando = useRef(false);
+
+    async function enviar(e) {
+        e.preventDefault();
+        if (refEnviando.current) return;
+        if (!correo.trim()) {
+            setError('Escribe el correo con el que entras a la app.');
+            return;
+        }
+
+        refEnviando.current = true;
+        setEnviando(true);
+        setError('');
+        try {
+            await resetPassword(correo.trim());
+            setEnviado(true);
+        } catch (err) {
+            console.error('Error al pedir el enlace de recuperación:', err);
+            setError(mensajeErrorAlRecuperar(err));
+        } finally {
+            refEnviando.current = false;
+            setEnviando(false);
+        }
+    }
+
+    if (enviado) {
+        return (
+            <div className="mt-6 space-y-4">
+                <div role="status" className="rounded-md border border-line bg-surface-2 p-4">
+                    <p className="flex items-center gap-2 text-sm font-semibold text-pos">
+                        <CircleCheck size={16} aria-hidden="true" />
+                        Enlace enviado
+                    </p>
+                    <p className="mt-1.5 text-sm text-ink-2">
+                        Revisa la bandeja de entrada de <strong className="break-all font-semibold text-ink">{correo.trim()}</strong> y
+                        abre el enlace para definir una contraseña nueva. Si no llega en unos minutos, revisa el correo no deseado.
                     </p>
                 </div>
+                <button type="button" onClick={onVolver} className="btn-secondary w-full">
+                    Volver a entrar
+                </button>
+            </div>
+        );
+    }
 
-                {/* Login Card */}
-                <div className="card" style={{ borderRadius: '24px', padding: '32px 28px' }}>
-                    {mode === 'login' ? (
-                        <>
-                            <h2 className="text-lg font-bold text-white text-center mb-7">
-                                Iniciar Sesión
-                            </h2>
+    return (
+        <form onSubmit={enviar} noValidate className="mt-6 space-y-4">
+            <div>
+                <label htmlFor={idCorreo} className="label">Correo electrónico</label>
+                <input
+                    id={idCorreo}
+                    type="email"
+                    inputMode="email"
+                    value={correo}
+                    onChange={(e) => { setCorreo(e.target.value); setError(''); }}
+                    className="input-field"
+                    placeholder="nombre@empresa.com"
+                    autoComplete="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    autoFocus
+                    required
+                />
+            </div>
 
-                            <form onSubmit={handleLogin} className="space-y-5">
-                                {/* Email */}
-                                <div>
-                                    <label className="label">Correo electrónico</label>
-                                    <div className="relative">
-                                        <Mail size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
-                                        <input
-                                            type="email"
-                                            value={email}
-                                            onChange={(e) => { setEmail(e.target.value); setError(''); }}
-                                            className="input-field"
-                                            style={{ paddingLeft: '44px' }}
-                                            placeholder="tu@correo.com"
-                                            required
-                                            autoComplete="email"
-                                            autoFocus
-                                        />
-                                    </div>
-                                </div>
+            <ErrorEnLinea>{error}</ErrorEnLinea>
 
-                                {/* Password */}
-                                <div>
-                                    <label className="label">Contraseña</label>
-                                    <div className="relative">
-                                        <Lock size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
-                                        <input
-                                            type={showPassword ? 'text' : 'password'}
-                                            value={password}
-                                            onChange={(e) => { setPassword(e.target.value); setError(''); }}
-                                            className="input-field"
-                                            style={{ paddingLeft: '44px', paddingRight: '48px' }}
-                                            placeholder="••••••••"
-                                            required
-                                            autoComplete="current-password"
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowPassword(!showPassword)}
-                                            className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors"
-                                        >
-                                            {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
-                                        </button>
-                                    </div>
-                                </div>
+            <button type="submit" disabled={enviando || !SUPABASE_HABILITADO} className="btn-primary w-full">
+                {enviando ? (
+                    <>
+                        <LoaderCircle size={18} className="animate-spin" aria-hidden="true" />
+                        Enviando...
+                    </>
+                ) : 'Enviar enlace'}
+            </button>
+        </form>
+    );
+}
 
-                                {/* Error message */}
-                                {error && (
-                                    <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-red-400 text-sm text-center">
-                                        {error}
-                                    </div>
-                                )}
+function PanelModoLocal() {
+    const { entrarModoLocal } = useAuth();
+    const [error, setError] = useState('');
 
-                                {/* Submit button */}
-                                <button
-                                    type="submit"
-                                    disabled={loading || !email || !password}
-                                    className="btn-primary w-full flex items-center justify-center gap-2 text-base"
-                                    style={{ padding: '14px 24px', marginTop: '24px' }}
-                                >
-                                    {loading ? (
-                                        <>
-                                            <Loader2 size={19} className="animate-spin" />
-                                            Ingresando...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <LogIn size={19} />
-                                            Iniciar Sesión
-                                        </>
-                                    )}
-                                </button>
+    function entrar() {
+        try {
+            entrarModoLocal();
+        } catch (err) {
+            setError(err?.message || 'No se pudo entrar en modo local.');
+        }
+    }
 
-                                {/* Forgot password link */}
-                                <button
-                                    type="button"
-                                    onClick={() => { setMode('forgot'); setError(''); setResetSent(false); }}
-                                    className="w-full text-center text-sm py-2 transition-colors"
-                                    style={{ color: 'var(--text-muted)' }}
-                                    onMouseEnter={e => e.target.style.color = 'var(--accent-gold)'}
-                                    onMouseLeave={e => e.target.style.color = 'var(--text-muted)'}
-                                >
-                                    <KeyRound size={13} className="inline mr-1.5" style={{ verticalAlign: '-2px' }} />
-                                    ¿Olvidaste tu contraseña?
-                                </button>
-                            </form>
-                        </>
-                    ) : (
-                        <>
-                            {/* Forgot Password Mode */}
-                            <button
-                                onClick={() => { setMode('login'); setError(''); setResetSent(false); }}
-                                className="flex items-center gap-1.5 text-gray-500 hover:text-white transition-colors mb-5 text-sm"
-                            >
-                                <ArrowLeft size={16} />
-                                Volver al login
-                            </button>
-
-                            <h2 className="text-lg font-bold text-white text-center mb-2">
-                                Recuperar Contraseña
-                            </h2>
-                            <p className="text-sm text-center mb-7" style={{ color: 'var(--text-muted)' }}>
-                                Te enviaremos un enlace para restablecer tu contraseña
-                            </p>
-
-                            {resetSent ? (
-                                <div className="bg-green-500/10 border border-green-500/20 rounded-xl px-5 py-6 text-center">
-                                    <div className="text-green-400 text-lg mb-2 font-semibold">✅ Correo enviado</div>
-                                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                                        Revisa tu bandeja de entrada en <strong className="text-white">{email}</strong> y sigue las instrucciones.
-                                    </p>
-                                </div>
-                            ) : (
-                                <form onSubmit={handleForgotPassword} className="space-y-5">
-                                    <div>
-                                        <label className="label">Correo electrónico</label>
-                                        <div className="relative">
-                                            <Mail size={17} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
-                                            <input
-                                                type="email"
-                                                value={email}
-                                                onChange={(e) => { setEmail(e.target.value); setError(''); }}
-                                                className="input-field"
-                                                style={{ paddingLeft: '44px' }}
-                                                placeholder="tu@correo.com"
-                                                required
-                                                autoFocus
-                                            />
-                                        </div>
-                                    </div>
-
-                                    {error && (
-                                        <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-red-400 text-sm text-center">
-                                            {error}
-                                        </div>
-                                    )}
-
-                                    <button
-                                        type="submit"
-                                        disabled={loading || !email}
-                                        className="btn-primary w-full flex items-center justify-center gap-2"
-                                    >
-                                        {loading ? (
-                                            <>
-                                                <Loader2 size={19} className="animate-spin" />
-                                                Enviando...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Mail size={19} />
-                                                Enviar enlace de recuperación
-                                            </>
-                                        )}
-                                    </button>
-                                </form>
-                            )}
-                        </>
-                    )}
-                </div>
-
-                {/* Footer */}
-                <p className="text-center text-xs mt-8" style={{ color: 'var(--text-muted)' }}>
-                    FinanzasObra © {new Date().getFullYear()}
+    return (
+        <div className="mt-6 space-y-4">
+            <div className="rounded-md border border-line bg-surface-2 p-4">
+                <p className="flex items-start gap-2 text-sm font-semibold text-ink">
+                    <FlaskConical size={16} className="mt-0.5 flex-shrink-0 text-info" aria-hidden="true" />
+                    Este entorno no tiene base de datos configurada
+                </p>
+                <p className="mt-1.5 text-sm text-ink-2">
+                    Puedes probar la app con un usuario de prueba. Lo que registres se guarda solo en este
+                    navegador y no llega a ninguna base de datos.
                 </p>
             </div>
+
+            <ErrorEnLinea>{error}</ErrorEnLinea>
+
+            <button type="button" onClick={entrar} className="btn-primary w-full">
+                Entrar en modo local de pruebas
+            </button>
+
+            <p className="text-xs leading-relaxed text-ink-3">
+                Para usar tu proyecto de pruebas en Supabase:{' '}
+                <code className="mono whitespace-nowrap text-ink-2">npm run configurar:pruebas</code>{' '}
+                (ver docs/ENTORNOS.md).
+            </p>
         </div>
+    );
+}
+
+export default function LoginScreen({ onLogin }) {
+    const { modoLocalDisponible } = useAuth();
+    const idTitulo = useId();
+    const [modo, setModo] = useState('entrar'); // 'entrar' | 'recuperar'
+    const [correo, setCorreo] = useState('');
+
+    const recuperando = modo === 'recuperar' && !modoLocalDisponible;
+
+    return (
+        <PantallaAcceso>
+            <section aria-labelledby={idTitulo} className="rounded-[10px] border border-line bg-surface p-5 sm:p-6">
+                {recuperando ? (
+                    <>
+                        <button
+                            type="button"
+                            onClick={() => setModo('entrar')}
+                            className="btn-ghost -ml-4 mb-2"
+                        >
+                            <ArrowLeft size={16} aria-hidden="true" />
+                            Volver
+                        </button>
+                        <Encabezado
+                            id={idTitulo}
+                            titulo="Recuperar contraseña"
+                            subtitulo="Te enviaremos un enlace para definir una contraseña nueva."
+                        />
+                        <FormularioRecuperar
+                            correo={correo}
+                            setCorreo={setCorreo}
+                            onVolver={() => setModo('entrar')}
+                        />
+                    </>
+                ) : (
+                    <>
+                        <Encabezado
+                            id={idTitulo}
+                            titulo="Entrar"
+                            subtitulo="Caja, gastos y deudas de obra, con o sin señal."
+                        />
+                        {modoLocalDisponible ? (
+                            <PanelModoLocal />
+                        ) : (
+                            <FormularioEntrar
+                                correo={correo}
+                                setCorreo={setCorreo}
+                                onLogin={onLogin}
+                                onOlvide={() => setModo('recuperar')}
+                            />
+                        )}
+                    </>
+                )}
+            </section>
+        </PantallaAcceso>
     );
 }

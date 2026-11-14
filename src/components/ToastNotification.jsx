@@ -1,34 +1,43 @@
-// ToastNotification - Toast notification container and items
-import { X, CheckCircle, AlertCircle, AlertTriangle, Info } from 'lucide-react';
+// Contenedor de avisos breves (ver hooks/useToast.js).
+// Escritorio: arriba a la derecha. Móvil: arriba, a lo ancho, debajo de la
+// barra superior, para no tapar la barra de navegación ni el botón de guardar.
+import { X, CircleCheck, CircleAlert, TriangleAlert, Info } from 'lucide-react';
+import { ES_PRODUCCION, SUPABASE_HABILITADO } from '../services/entorno';
 
-const ICONS = {
-    success: CheckCircle,
-    error: AlertCircle,
-    warning: AlertTriangle,
-    info: Info
+const TONOS = {
+    success: { icono: CircleCheck, color: 'text-pos', borde: 'border-l-pos' },
+    error: { icono: CircleAlert, color: 'text-neg', borde: 'border-l-neg' },
+    warning: { icono: TriangleAlert, color: 'text-warn', borde: 'border-l-warn' },
+    info: { icono: Info, color: 'text-info', borde: 'border-l-info' },
 };
 
-const STYLES = {
-    success: 'bg-green-600 border-green-500',
-    error: 'bg-red-600 border-red-500',
-    warning: 'bg-amber-600 border-amber-500',
-    info: 'bg-blue-600 border-blue-500'
-};
+// Misma condición que EnvBanner: la franja de entorno (28 px) se ve en todo
+// lo que no sea una producción bien configurada, y los avisos van debajo.
+const ALTO_FRANJA = ES_PRODUCCION && SUPABASE_HABILITADO ? 0 : 28;
+const ALTO_BARRA_MOVIL = 56;
 
 function ToastItem({ toast, onRemove }) {
-    const Icon = ICONS[toast.type] || Info;
-    const style = STYLES[toast.type] || STYLES.info;
+    const tono = TONOS[toast.type] || TONOS.info;
+    const Icono = tono.icono;
+    const esError = toast.type === 'error';
 
     return (
         <div
-            className={`flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg text-white animate-slide-in ${style}`}
-            role="alert"
+            role={esError ? 'alert' : 'status'}
+            aria-live={esError ? 'assertive' : 'polite'}
+            aria-atomic="true"
+            className={`pointer-events-auto flex items-start gap-3 rounded-md border border-l-[3px] border-line-strong ${tono.borde} bg-surface py-2 pl-3 pr-1 text-ink animate-slide-in`}
+            style={{ boxShadow: 'var(--shadow-pop)' }}
         >
-            <Icon size={20} className="flex-shrink-0" />
-            <span className="flex-1 text-sm font-medium">{toast.message}</span>
+            <Icono size={18} strokeWidth={2.25} className={`mt-[11px] flex-shrink-0 ${tono.color}`} aria-hidden="true" />
+            <p className="min-w-0 flex-1 py-2 text-sm font-medium leading-snug break-words">
+                {toast.message}
+            </p>
             <button
+                type="button"
                 onClick={() => onRemove(toast.id)}
-                className="p-1 hover:bg-white/20 rounded transition-colors"
+                className="btn-icon flex-shrink-0"
+                aria-label="Cerrar aviso"
             >
                 <X size={16} />
             </button>
@@ -37,16 +46,18 @@ function ToastItem({ toast, onRemove }) {
 }
 
 export default function ToastContainer({ toasts, onRemove }) {
-    if (toasts.length === 0) return null;
-
+    // Se monta aunque esté vacío y no intercepta toques (pointer-events-none):
+    // solo los avisos en sí reciben clics.
     return (
-        <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
-            {toasts.map(toast => (
-                <ToastItem
-                    key={toast.id}
-                    toast={toast}
-                    onRemove={onRemove}
-                />
+        <div
+            className="pointer-events-none fixed inset-x-3 top-[var(--toast-top-movil)] z-[100] flex flex-col gap-2 lg:inset-x-auto lg:right-4 lg:top-[var(--toast-top-escritorio)] lg:w-[380px]"
+            style={{
+                '--toast-top-movil': `calc(env(safe-area-inset-top) + ${ALTO_FRANJA + ALTO_BARRA_MOVIL + 8}px)`,
+                '--toast-top-escritorio': `${ALTO_FRANJA + 16}px`,
+            }}
+        >
+            {toasts.map((toast) => (
+                <ToastItem key={toast.id} toast={toast} onRemove={onRemove} />
             ))}
         </div>
     );

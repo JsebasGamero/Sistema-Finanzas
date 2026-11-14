@@ -1,0 +1,67 @@
+-- =====================================================
+-- MIGRACIÓN 003 — Quitar las vistas que saltaban RLS
+-- =====================================================
+--
+-- PROBLEMA QUE RESUELVE (ADM-2):
+-- El setup original creó tres vistas sin `security_invoker`:
+--   v_saldo_por_empresa, v_gastos_por_proyecto, v_prestamos_entre_cajas.
+-- Una vista así se ejecuta con los permisos de su dueño (postgres, dueño de
+-- las tablas), y a ese rol no se le aplica RLS. Como Supabase concede SELECT
+-- a `anon` sobre lo que se crea en `public`, bastaba la anon key (que viaja
+-- en el bundle de la app) para leer sin iniciar sesión:
+--   GET {url}/rest/v1/v_saldo_por_empresa      -> saldo de cada empresa
+--   GET {url}/rest/v1/v_gastos_por_proyecto    -> ingresos y egresos por obra
+-- La migración 001 cerró las tablas pero no tocó las vistas. El Security
+-- Advisor de Supabase las marca como "Security Definer View".
+--
+-- ESTA MIGRACIÓN:
+-- Las elimina. La app no las usa (grep sin resultados en src/ y scripts/) y
+-- además estaban mal: v_prestamos_entre_cajas filtra la categoría 'Préstamo'
+-- mientras que los préstamos entre cajas se registran como
+-- 'Préstamo entre Cajas', y v_saldo_por_empresa suma cajas.saldo_actual, que
+-- puede derivar entre dispositivos (C6). Una vista no guarda datos: borrarla
+-- no pierde información.
+--
+-- Si alguien las consultaba desde el SQL Editor del dashboard, se pueden
+-- recrear con `WITH (security_invoker = true)` (respeta RLS) y
+-- `REVOKE ALL ON <vista> FROM anon;`. Ver docs/SEGURIDAD.md.
+--
+-- EJECUTAR EN: Supabase Dashboard > SQL Editor. Primero en el proyecto de
+-- pruebas, después en producción. Es idempotente (IF EXISTS).
+-- REQUIERE: nada. No cambia tablas, columnas ni políticas.
+-- EFECTO SOBRE LA APP EN EJECUCIÓN: ninguno (la app no lee estas vistas).
+-- =====================================================
+
+DROP VIEW IF EXISTS public.v_prestamos_entre_cajas;
+DROP VIEW IF EXISTS public.v_gastos_por_proyecto;
+DROP VIEW IF EXISTS public.v_saldo_por_empresa;
+
+
+-- -----------------------------------------------------
+-- Verificación
+-- -----------------------------------------------------
+-- 1) Las tres vistas ya no existen (debe devolver 0 filas):
+--
+--   SELECT table_name FROM information_schema.views
+--   WHERE table_schema = 'public'
+--     AND table_name IN ('v_saldo_por_empresa', 'v_gastos_por_proyecto', 'v_prestamos_entre_cajas');
+--
+-- 2) Ninguna vista de `public` salta RLS (debe devolver 0 filas). Si en el
+--    futuro se crea una vista, tiene que llevar WITH (security_invoker = true):
+--
+--   SELECT c.relname AS vista
+--   FROM pg_class c
+--   JOIN pg_namespace n ON n.oid = c.relnamespace
+--   WHERE n.nspname = 'public'
+--     AND c.relkind IN ('v', 'm')
+--     AND NOT EXISTS (
+--       SELECT 1 FROM unnest(COALESCE(c.reloptions, '{}')) AS opcion
+--       WHERE opcion IN ('security_invoker=true', 'security_invoker=on', 'security_invoker=1')
+--     );
+--
+-- 3) Sigue sin haber políticas abiertas al rol anónimo (la de la 001):
+--
+--   SELECT tablename, policyname, roles
+--   FROM pg_policies
+--   WHERE schemaname IN ('public', 'storage')
+--     AND ('anon' = ANY(roles) OR roles = '{public}');

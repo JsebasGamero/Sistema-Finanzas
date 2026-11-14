@@ -1,0 +1,455 @@
+/* Explorador de reportes (tabla dinámica). Solo tokens del sistema
+   "Libro de obra" (docs/DISENO.md): cambia solo con el tema día/noche. */
+
+.explorador {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* ---------- Barra de herramientas ---------- */
+.explorador-barra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.explorador-barra-grupo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.explorador-barra-acciones {
+  margin-left: auto;
+}
+
+.explorador-campo-periodo {
+  flex: 0 1 190px;
+  min-width: 150px;
+}
+
+.explorador-fechas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.explorador-fechas .input-field {
+  width: 160px;
+}
+
+.explorador-busqueda {
+  position: relative;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.explorador-busqueda > svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-3);
+  pointer-events: none;
+}
+
+.explorador-busqueda .input-field {
+  padding-left: 36px;
+}
+
+/* En 320 px los botones muestran solo el icono (el aria-label los nombra). */
+@media (max-width: 479px) {
+  .explorador-texto-boton {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .explorador-busqueda {
+    max-width: none;
+    flex-basis: 100%;
+  }
+
+  /* Botones de solo icono: sin la flecha caben en una fila. */
+  .explorador-chevron {
+    display: none;
+  }
+
+  .explorador-campo-periodo {
+    flex: 1 1 150px;
+  }
+}
+
+/* Indicadores en pantallas angostas: rótulo a la izquierda y cifra a la
+   derecha, como un renglón de libro. Apilados uno por fila ocupaban media
+   pantalla antes de llegar a la tabla. */
+@media (max-width: 479px) {
+  .explorador .kpi {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: baseline;
+    column-gap: 12px;
+    padding: 8px 12px;
+  }
+
+  .explorador .kpi-value {
+    margin-top: 0;
+    font-size: 17px;
+    text-align: right;
+  }
+
+  .explorador .kpi-meta {
+    grid-column: 1 / -1;
+    margin-top: 0;
+  }
+
+  .explorador-densidad {
+    width: 100%;
+  }
+
+  .explorador-densidad > button {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+/* ---------- Popover (en móvil, hoja inferior) ---------- */
+.explorador-popover-ancla {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.explorador-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 45;
+  width: min(var(--ancho-popover, 300px), calc(100vw - 24px));
+  max-height: min(70dvh, 560px);
+  overflow-y: auto;
+  padding: 8px;
+  color: var(--ink);
+}
+
+.explorador-popover[data-alinear="derecha"] {
+  right: 0;
+}
+
+.explorador-popover[data-alinear="izquierda"] {
+  left: 0;
+}
+
+.explorador-popover-fondo {
+  display: none;
+}
+
+@media (max-width: 639px) {
+  .explorador-popover {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    width: auto;
+    max-height: 78dvh;
+    z-index: 71;
+  }
+
+  .explorador-popover-fondo {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    background: var(--overlay);
+  }
+}
+
+.explorador-popover-titulo {
+  padding: 6px 8px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.explorador-opcion {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.explorador-opcion:hover {
+  background: var(--surface-2);
+}
+
+.explorador-opcion[aria-current="true"] {
+  background: var(--surface-2);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.explorador-opcion:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.explorador-opcion-detalle {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--ink-3);
+  line-height: 1.35;
+}
+
+.explorador-separador {
+  height: 1px;
+  margin: 6px 0;
+  background: var(--line);
+}
+
+/* Fila de la lista de columnas: casilla + nombre + acciones. */
+.explorador-fila-columna {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0 4px 0 8px;
+  border-radius: var(--r-md);
+}
+
+.explorador-fila-columna:hover {
+  background: var(--surface-2);
+}
+
+.explorador-fila-columna label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.explorador-fila-columna label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.explorador-casilla {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+
+.explorador-icono-mini {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.explorador-icono-mini:hover {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+
+.explorador-icono-mini[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.explorador-icono-mini:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+@media (pointer: coarse) {
+  .explorador-icono-mini {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* ---------- Línea de estado (conteo, filtros, selección) ---------- */
+.explorador-estado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.explorador-seleccion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.explorador-aviso {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.explorador-aviso[data-tono="neg"] { background: var(--neg-soft); color: var(--neg); border-color: transparent; }
+.explorador-aviso[data-tono="warn"] { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.explorador-aviso[data-tono="info"] { background: var(--info-soft); color: var(--info); border-color: transparent; }
+.explorador-aviso[data-tono="pos"] { background: var(--pos-soft); color: var(--pos); border-color: transparent; }
+
+/* ---------- Grillas ---------- */
+/* Altura fija con virtualización (sin paginación ni autoHeight): con miles
+   de filas solo se pintan las visibles (REP-19). El scroll horizontal queda
+   dentro de la grilla, nunca en la página. */
+.explorador-grilla {
+  height: max(420px, calc(100dvh - 300px));
+  min-width: 0;
+  width: 100%;
+}
+
+.pantalla-completa .explorador-grilla {
+  height: max(420px, calc(100dvh - 210px));
+}
+
+.explorador-grilla-resumen {
+  min-width: 0;
+  width: 100%;
+}
+
+.explorador .celda-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.explorador .celda-neg {
+  color: var(--neg);
+}
+
+.explorador .celda-warn {
+  color: var(--warn);
+}
+
+.explorador .celda-total {
+  font-weight: 700;
+}
+
+.explorador .fila-subtotal {
+  font-weight: 700;
+  background-color: var(--surface-2);
+}
+
+.explorador .celda-subnivel {
+  color: var(--ink-2);
+  padding-left: 24px;
+}
+
+/* Mapa de calor: el acento mezclado con el fondo, de 5 % a 35 %. */
+.explorador .calor-1 { background-color: color-mix(in oklab, var(--accent) 5%, transparent); }
+.explorador .calor-2 { background-color: color-mix(in oklab, var(--accent) 10%, transparent); }
+.explorador .calor-3 { background-color: color-mix(in oklab, var(--accent) 15%, transparent); }
+.explorador .calor-4 { background-color: color-mix(in oklab, var(--accent) 20%, transparent); }
+.explorador .calor-5 { background-color: color-mix(in oklab, var(--accent) 25%, transparent); }
+.explorador .calor-6 { background-color: color-mix(in oklab, var(--accent) 30%, transparent); }
+.explorador .calor-7 { background-color: color-mix(in oklab, var(--accent) 35%, transparent); }
+
+.celda-boton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 2px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.celda-boton:hover {
+  background: var(--surface-3);
+}
+
+/* Inputs de los filtros de la grilla a 16 px en móvil: por debajo, iOS
+   hace zoom al enfocarlos. */
+@media (max-width: 1023px) {
+  .explorador .ag-input-field-input,
+  .explorador .ag-text-field-input,
+  .explorador .ag-number-field-input,
+  .explorador .ag-date-field-input {
+    font-size: 16px;
+  }
+}
+
+/* ---------- Panel de resumen ---------- */
+.explorador-panel-resumen {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 560px) {
+  .explorador-panel-resumen {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .explorador-panel-resumen {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.explorador-interruptor {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+  cursor: pointer;
+}

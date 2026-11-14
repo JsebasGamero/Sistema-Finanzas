@@ -1,600 +1,709 @@
-// DeudaCajasPanel - Manage inter-box debts/loans
-import { useState, useEffect, useMemo } from 'react';
+// Préstamos entre cajas: lo que una caja le debe a otra.
+//
+// Las escrituras van por ./deudas/operacionesDeuda (una transacción Dexie por
+// operación, sync en segundo plano) y la lista se lee con liveQuery, así que
+// se actualiza sola después de abonar, anular o sincronizar.
+import { useCallback, useMemo, useState } from 'react';
+import { AlertTriangle, ChevronDown, Plus } from 'lucide-react';
+import { db } from '../services/db';
+import { useAuth } from '../context/useAuth';
+import ConfirmModal from './ConfirmModal';
+import { formatoFecha, formatoFechaHora, formatoMoneda } from '../presentation/formato';
+import { aMonto, restarMontos } from '../domain/value-objects/dinero';
+import { useAccionUnica, useAviso, useConsultaViva } from './deudas/hooksDeuda';
 import {
-    ArrowRightLeft,
-    Plus,
-    Wallet,
-    AlertCircle,
-    CheckCircle,
-    ChevronDown,
-    ChevronUp,
-    DollarSign,
-    History,
-    X
-} from 'lucide-react';
-import { db, generateUUID } from '../services/db';
-import { addToSyncQueue, processSyncQueue } from '../services/syncService';
-import { useAuth } from '../context/AuthContext';
+    AvisoEnLinea,
+    CampoMonto,
+    CampoSelect,
+    ChipEstadoDeuda,
+    FranjaKpi,
+    HistorialAbonos,
+    HojaModal,
+    Kpi,
+    MedidorAbono,
+} from './deudas/piezasDeuda';
+import {
+    clavePago,
+    ESTADO_DEUDA,
+    estadoDe,
+    fraccionAbonada,
+    ordenarRecientes,
+    pagosDe,
+    resumirDeudas,
+    validarAbono,
+} from './deudas/reglasDeuda';
+import {
+    abonarPrestamoEntreCajas,
+    analizarAnulacionDeAbono,
+    analizarEliminacion,
+    anularUltimoAbono,
+    crearPrestamoEntreCajas,
+    eliminarDeuda,
+    mensajeDeError,
+} from './deudas/operacionesDeuda';
+
+const VACIO = { deudas: [], cajas: [] };
+const PAGINA_PAGADAS = 30;
+const FORM_VACIO = { acreedoraId: '', deudoraId: '', monto: '', descripcion: '' };
+
+// Fuera del componente para que la suscripción de liveQuery no se rehaga en
+// cada render.
+async function leerPrestamos() {
+    const [deudas, cajas] = await Promise.all([db.deudas_cajas.toArray(), db.cajas.toArray()]);
+    return { deudas, cajas };
+}
+
+function sufijoSinSenal() {
+    return typeof navigator !== 'undefined' && navigator.onLine === false
+        ? ' Se subirá a la nube cuando haya señal.'
+        : '';
+}
 
 export default function DeudaCajasPanel({ onDebtChanged }) {
     const { currentUser } = useAuth();
-    const [deudas, setDeudas] = useState([]);
-    const [cajas, setCajas] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [showForm, setShowForm] = useState(false);
-    const [showPaymentForm, setShowPaymentForm] = useState(null);
-    const [expandedId, setExpandedId] = useState(null);
+    const usuarioNombre = currentUser?.nombre || 'Desconocido';
+    const { datos, cargando, error } = useConsultaViva(leerPrestamos, VACIO);
+    const [ocupado, ejecutar] = useAccionUnica();
+    const [aviso, mostrarAviso, limpiarAviso] = useAviso();
 
-    // Form state
-    const [formData, setFormData] = useState({
-        cajaDeudoraId: '',
-        cajaAcreedoraId: '',
-        monto: '',
-        descripcion: ''
-    });
+    const [vista, setVista] = useState('pendientes');
+    const [limitePagadas, setLimitePagadas] = useState(PAGINA_PAGADAS);
+    const [abiertaId, setAbiertaId] = useState(null);
 
-    // Payment form state
-    const [paymentAmount, setPaymentAmount] = useState('');
+    // Hoja abierta: { tipo: 'nuevo' } | { tipo: 'abono', deudaId }
+    const [hoja, setHoja] = useState(null);
+    const [form, setForm] = useState(FORM_VACIO);
+    const [errores, setErrores] = useState({});
+    const [montoAbono, setMontoAbono] = useState('');
+    const [errorMonto, setErrorMonto] = useState('');
+    const [errorAbono, setErrorAbono] = useState('');
+    // Confirmación de saldo insuficiente (reemplaza el confirm() nativo).
+    const [saldoBajo, setSaldoBajo] = useState(null);
+    // Confirmación de eliminar préstamo o anular abono.
+    const [accion, setAccion] = useState(null);
 
-    useEffect(() => {
-        loadData();
-    }, []);
+    const cajasPorId = useMemo(() => new Map(datos.cajas.map((c) => [c.id, c])), [datos.cajas]);
+    const nombreCaja = useCallback((id) => cajasPorId.get(id)?.nombre ?? 'Caja eliminada', [cajasPorId]);
+    const cajasOrdenadas = useMemo(
+        () => [...datos.cajas].sort((a, b) => String(a.nombre ?? '').localeCompare(String(b.nombre ?? ''), 'es')),
+        [datos.cajas]
+    );
+    const resumen = useMemo(() => resumirDeudas(datos.deudas), [datos.deudas]);
+    const pendientes = useMemo(() => ordenarRecientes(resumen.pendientes, 'fecha_prestamo'), [resumen]);
+    const pagadas = useMemo(() => ordenarRecientes(resumen.pagadas, 'fecha_prestamo'), [resumen]);
 
-    async function loadData() {
-        setLoading(true);
-        try {
-            // Get cajas first
-            const cajasData = await db.cajas.toArray();
-            setCajas(cajasData);
+    const deudaAbono = hoja?.tipo === 'abono' ? datos.deudas.find((d) => d.id === hoja.deudaId) ?? null : null;
+    const faltaCaja = (deuda) => !cajasPorId.has(deuda.caja_deudora_id) || !cajasPorId.has(deuda.caja_acreedora_id);
 
-            // Try to get deudas_cajas if the table exists
-            if (db.deudas_cajas) {
-                try {
-                    const deudasData = await db.deudas_cajas.toArray();
-                    setDeudas(deudasData || []);
-                } catch (e) {
-                    console.log('Deudas table may not have data yet:', e);
-                    setDeudas([]);
-                }
-            } else {
-                setDeudas([]);
+    const cerrarHoja = useCallback(() => {
+        if (ocupado) return;
+        setHoja(null);
+        setSaldoBajo(null);
+    }, [ocupado]);
+
+    // ---------------- Nuevo préstamo ----------------
+
+    function abrirNuevo() {
+        limpiarAviso();
+        setForm(FORM_VACIO);
+        setErrores({});
+        setHoja({ tipo: 'nuevo' });
+    }
+
+    function cambiarCampo(campo, valor) {
+        setForm((previo) => ({ ...previo, [campo]: valor }));
+        setErrores((previo) => ({ ...previo, [campo]: undefined, general: undefined }));
+    }
+
+    function guardarNuevo() {
+        return ejecutar(async () => {
+            const monto = aMonto(form.monto);
+            try {
+                await crearPrestamoEntreCajas({
+                    cajaAcreedoraId: form.acreedoraId,
+                    cajaDeudoraId: form.deudoraId,
+                    monto,
+                    descripcion: form.descripcion,
+                    usuarioNombre,
+                });
+                setSaldoBajo(null);
+                setHoja(null);
+                setForm(FORM_VACIO);
+                setVista('pendientes');
+                mostrarAviso('ok', `Préstamo de ${formatoMoneda(monto)} registrado.${sufijoSinSenal()}`);
+                onDebtChanged?.();
+            } catch (err) {
+                console.error('No se pudo registrar el préstamo:', err);
+                setSaldoBajo(null);
+                setErrores({
+                    general: mensajeDeError(err, 'No se guardó el préstamo y ningún saldo cambió. Intenta de nuevo.'),
+                });
             }
-        } catch (error) {
-            console.error('Error loading data:', error);
-            setDeudas([]);
-            setCajas([]);
-        } finally {
-            setLoading(false);
-        }
+        });
     }
 
-    function formatMoney(amount) {
-        return new Intl.NumberFormat('es-CO', {
-            style: 'currency',
-            currency: 'COP',
-            minimumFractionDigits: 0
-        }).format(amount || 0);
-    }
+    function enviarNuevo(evento) {
+        evento.preventDefault();
+        if (ocupado) return;
+        const nuevos = {};
+        if (!form.acreedoraId) nuevos.acreedoraId = 'Elige la caja que presta.';
+        if (!form.deudoraId) nuevos.deudoraId = 'Elige la caja que recibe.';
+        else if (form.deudoraId === form.acreedoraId) nuevos.deudoraId = 'Debe ser una caja distinta a la que presta.';
+        if (!(aMonto(form.monto) > 0)) nuevos.monto = 'Escribe un monto mayor a 0.';
+        setErrores(nuevos);
+        if (Object.keys(nuevos).length > 0) return;
 
-    function getCajaName(id) {
-        return cajas.find(c => c.id === id)?.nombre || 'Desconocida';
-    }
-
-    // Format number with thousand separators (dots) for display in input
-    function formatDisplayNumber(value) {
-        if (!value && value !== 0) return '';
-        const numStr = String(value).replace(/\D/g, '');
-        if (!numStr) return '';
-        return new Intl.NumberFormat('es-CO').format(parseInt(numStr, 10));
-    }
-
-    // Parse formatted number back to raw number string
-    function parseFormattedNumber(formattedValue) {
-        return formattedValue.replace(/\./g, '');
-    }
-
-    // Group debts by status
-    const debtsSummary = useMemo(() => {
-        const pending = deudas.filter(d => d.estado === 'PENDIENTE');
-        const partial = deudas.filter(d => d.estado === 'PARCIAL');
-        const paid = deudas.filter(d => d.estado === 'PAGADA');
-
-        const totalPending = [...pending, ...partial].reduce((sum, d) => sum + d.monto_pendiente, 0);
-
-        return { pending, partial, paid, totalPending };
-    }, [deudas]);
-
-    async function handleCreateDebt(e) {
-        e.preventDefault();
-
-        if (formData.cajaDeudoraId === formData.cajaAcreedoraId) {
-            alert('La caja deudora y acreedora deben ser diferentes');
+        const acreedora = cajasPorId.get(form.acreedoraId);
+        const monto = aMonto(form.monto);
+        const despues = restarMontos(aMonto(acreedora?.saldo_actual), monto);
+        if (acreedora && despues < 0) {
+            setSaldoBajo({ accion: 'nuevo', caja: acreedora.nombre, saldo: aMonto(acreedora.saldo_actual), monto, despues });
             return;
         }
-
-        const monto = parseFloat(formData.monto);
-        if (!monto || monto <= 0) {
-            alert('El monto debe ser mayor a 0');
-            return;
-        }
-
-        const newDeuda = {
-            id: generateUUID(),
-            caja_deudora_id: formData.cajaDeudoraId,
-            caja_acreedora_id: formData.cajaAcreedoraId,
-            monto_original: monto,
-            monto_pendiente: monto,
-            fecha_prestamo: new Date().toISOString().split('T')[0],
-            estado: 'PENDIENTE',
-            descripcion: formData.descripcion || `Préstamo de ${getCajaName(formData.cajaAcreedoraId)} a ${getCajaName(formData.cajaDeudoraId)}`,
-            pagos: [],
-            usuario_nombre: currentUser?.nombre || 'Desconocido',
-            created_at: new Date().toISOString()
-        };
-
-        // Check if lending caja has enough balance
-        const cajaAcreedora = cajas.find(c => c.id === formData.cajaAcreedoraId);
-        if (cajaAcreedora && cajaAcreedora.saldo_actual < monto) {
-            const confirmar = confirm(
-                `La caja "${cajaAcreedora.nombre}" solo tiene ${formatMoney(cajaAcreedora.saldo_actual)}. ` +
-                `¿Deseas continuar con el préstamo de ${formatMoney(monto)}? El saldo quedará negativo.`
-            );
-            if (!confirmar) return;
-        }
-
-        try {
-            // 1. Save the debt record
-            await db.deudas_cajas.add(newDeuda);
-            await addToSyncQueue('deudas_cajas', 'INSERT', newDeuda);
-
-            // 2. Create TRANSFERENCIA transaction (from lender to borrower)
-            const transaccion = {
-                id: generateUUID(),
-                fecha: new Date().toISOString().split('T')[0],
-                descripcion: newDeuda.descripcion || `Préstamo: ${getCajaName(formData.cajaAcreedoraId)} → ${getCajaName(formData.cajaDeudoraId)}`,
-                monto: monto,
-                tipo_movimiento: 'TRANSFERENCIA',
-                categoria: 'Préstamo entre Cajas',
-                proyecto_id: null,
-                caja_origen_id: formData.cajaAcreedoraId,  // Money leaves the lender
-                caja_destino_id: formData.cajaDeudoraId,   // Money goes to the borrower
-                tercero_id: null,
-                sincronizado: false,
-                usuario_nombre: currentUser?.nombre || 'Desconocido',
-                created_at: new Date().toISOString()
-            };
-            await db.transacciones.add(transaccion);
-            await addToSyncQueue('transacciones', 'INSERT', transaccion);
-
-            // 3. Update lender caja balance (deduct)
-            const cajaOrigen = await db.cajas.get(formData.cajaAcreedoraId);
-            if (cajaOrigen) {
-                const nuevoSaldoOrigen = (cajaOrigen.saldo_actual || 0) - monto;
-                await db.cajas.update(formData.cajaAcreedoraId, { saldo_actual: nuevoSaldoOrigen });
-                await addToSyncQueue('cajas', 'UPDATE', { ...cajaOrigen, saldo_actual: nuevoSaldoOrigen });
-            }
-
-            // 4. Update borrower caja balance (add)
-            const cajaDestino = await db.cajas.get(formData.cajaDeudoraId);
-            if (cajaDestino) {
-                const nuevoSaldoDestino = (cajaDestino.saldo_actual || 0) + monto;
-                await db.cajas.update(formData.cajaDeudoraId, { saldo_actual: nuevoSaldoDestino });
-                await addToSyncQueue('cajas', 'UPDATE', { ...cajaDestino, saldo_actual: nuevoSaldoDestino });
-            }
-
-            // 5. Sync all changes immediately if online
-            if (navigator.onLine) {
-                try {
-                    await processSyncQueue();
-                    await db.transacciones.update(transaccion.id, { sincronizado: true });
-                } catch (err) { console.log('Sync error:', err); }
-            }
-
-            // 6. Reload cajas to update local state
-            const cajasActualizadas = await db.cajas.toArray();
-            setCajas(cajasActualizadas);
-
-            setDeudas([...deudas, newDeuda]);
-            setFormData({ cajaDeudoraId: '', cajaAcreedoraId: '', monto: '', descripcion: '' });
-            setShowForm(false);
-            onDebtChanged?.();
-        } catch (error) {
-            console.error('Error creating debt:', error);
-            alert('Error al crear la deuda');
-        }
+        guardarNuevo();
     }
 
-    async function handlePayment(deudaId) {
-        const amount = parseFloat(paymentAmount);
-        if (!amount || amount <= 0) {
-            alert('El monto debe ser mayor a 0');
-            return;
-        }
+    // ---------------- Abono ----------------
 
-        const deuda = deudas.find(d => d.id === deudaId);
-        if (!deuda) return;
-
-        if (amount > deuda.monto_pendiente) {
-            alert(`El pago no puede ser mayor al monto pendiente (${formatMoney(deuda.monto_pendiente)})`);
-            return;
-        }
-
-        // Check if debtor caja has enough balance
-        const cajaDeudora = cajas.find(c => c.id === deuda.caja_deudora_id);
-        if (cajaDeudora && cajaDeudora.saldo_actual < amount) {
-            const confirmar = confirm(
-                `La caja deudora "${cajaDeudora.nombre}" solo tiene ${formatMoney(cajaDeudora.saldo_actual)}. ` +
-                `¿Deseas continuar con el pago de ${formatMoney(amount)}? El saldo quedará negativo.`
-            );
-            if (!confirmar) return;
-        }
-
-        const newMontoPendiente = deuda.monto_pendiente - amount;
-        const newEstado = newMontoPendiente === 0 ? 'PAGADA' : 'PARCIAL';
-        const pagos = [...(deuda.pagos || []), {
-            monto: amount,
-            fecha: new Date().toISOString(),
-            usuario_nombre: currentUser?.nombre || 'Desconocido'
-        }];
-
-        try {
-            // 1. Update the debt
-            await db.deudas_cajas.update(deudaId, {
-                monto_pendiente: newMontoPendiente,
-                estado: newEstado,
-                pagos
-            });
-
-            // 1b. Sync the debt update to Supabase
-            const updatedDeuda = await db.deudas_cajas.get(deudaId);
-            if (updatedDeuda) {
-                await addToSyncQueue('deudas_cajas', 'UPDATE', updatedDeuda);
-            }
-
-            // 2. Create TRANSFERENCIA transaction (from debtor to creditor)
-            const transaccion = {
-                id: generateUUID(),
-                fecha: new Date().toISOString().split('T')[0],
-                descripcion: `Pago deuda: ${getCajaName(deuda.caja_deudora_id)} → ${getCajaName(deuda.caja_acreedora_id)}`,
-                monto: amount,
-                tipo_movimiento: 'TRANSFERENCIA',
-                categoria: 'Pago Préstamo',
-                proyecto_id: null,
-                caja_origen_id: deuda.caja_deudora_id,
-                caja_destino_id: deuda.caja_acreedora_id,
-                tercero_id: null,
-                sincronizado: false,
-                usuario_nombre: currentUser?.nombre || 'Desconocido',
-                created_at: new Date().toISOString()
-            };
-
-            await db.transacciones.add(transaccion);
-
-            // Add to sync queue for Supabase
-            await addToSyncQueue('transacciones', 'INSERT', transaccion);
-
-            // Try to sync immediately if online, and WAIT for it to complete
-            if (navigator.onLine) {
-                try {
-                    await processSyncQueue();
-                    // Update local transaction to show as synced
-                    await db.transacciones.update(transaccion.id, { sincronizado: true });
-                } catch (err) {
-                    console.log('Sync error (will retry later):', err);
-                }
-            }
-
-            // 3. Update debtor caja balance (deduct) and sync
-            if (deuda.caja_deudora_id) {
-                const cajaOrigen = await db.cajas.get(deuda.caja_deudora_id);
-                if (cajaOrigen) {
-                    const nuevoSaldoOrigen = (cajaOrigen.saldo_actual || 0) - amount;
-                    await db.cajas.update(deuda.caja_deudora_id, { saldo_actual: nuevoSaldoOrigen });
-                    // Sync to Supabase
-                    const updatedCajaOrigen = { ...cajaOrigen, saldo_actual: nuevoSaldoOrigen };
-                    await addToSyncQueue('cajas', 'UPDATE', updatedCajaOrigen);
-                }
-            }
-
-            // 4. Update creditor caja balance (add) and sync
-            if (deuda.caja_acreedora_id) {
-                const cajaDestino = await db.cajas.get(deuda.caja_acreedora_id);
-                if (cajaDestino) {
-                    const nuevoSaldoDestino = (cajaDestino.saldo_actual || 0) + amount;
-                    await db.cajas.update(deuda.caja_acreedora_id, { saldo_actual: nuevoSaldoDestino });
-                    // Sync to Supabase
-                    const updatedCajaDestino = { ...cajaDestino, saldo_actual: nuevoSaldoDestino };
-                    await addToSyncQueue('cajas', 'UPDATE', updatedCajaDestino);
-                }
-            }
-
-            // 5. Sync caja updates immediately if online
-            if (navigator.onLine) {
-                await processSyncQueue();
-            }
-
-            // 6. Reload cajas to update local state
-            const cajasActualizadas = await db.cajas.toArray();
-            setCajas(cajasActualizadas);
-
-            setDeudas(deudas.map(d =>
-                d.id === deudaId
-                    ? { ...d, monto_pendiente: newMontoPendiente, estado: newEstado, pagos }
-                    : d
-            ));
-            setPaymentAmount('');
-            setShowPaymentForm(null);
-            onDebtChanged?.();
-        } catch (error) {
-            console.error('Error processing payment:', error);
-            alert('Error al procesar el pago');
-        }
+    function abrirAbono(deuda) {
+        limpiarAviso();
+        setMontoAbono('');
+        setErrorMonto('');
+        setErrorAbono('');
+        setHoja({ tipo: 'abono', deudaId: deuda.id });
     }
 
-    async function handleDeleteDebt(deudaId) {
-        if (!confirm('¿Eliminar esta deuda?')) return;
-
-        try {
-            await db.deudas_cajas.delete(deudaId);
-
-            // Sync deletion to Supabase
-            await addToSyncQueue('deudas_cajas', 'DELETE', { id: deudaId });
-            if (navigator.onLine) {
-                try { await processSyncQueue(); } catch (err) { console.log('Sync error:', err); }
+    function guardarAbono() {
+        return ejecutar(async () => {
+            const monto = aMonto(montoAbono);
+            try {
+                await abonarPrestamoEntreCajas({ deudaId: hoja.deudaId, monto, usuarioNombre });
+                setSaldoBajo(null);
+                setHoja(null);
+                mostrarAviso('ok', `Abono de ${formatoMoneda(monto)} registrado.${sufijoSinSenal()}`);
+                onDebtChanged?.();
+            } catch (err) {
+                console.error('No se pudo registrar el abono:', err);
+                setSaldoBajo(null);
+                setErrorAbono(mensajeDeError(err, 'No se guardó el abono y ningún saldo cambió. Intenta de nuevo.'));
             }
-
-            setDeudas(deudas.filter(d => d.id !== deudaId));
-            onDebtChanged?.();
-        } catch (error) {
-            console.error('Error deleting debt:', error);
-            alert('Error al eliminar la deuda');
-        }
+        });
     }
 
-    if (loading) {
+    function enviarAbono(evento) {
+        evento.preventDefault();
+        if (ocupado || !deudaAbono) return;
+        setErrorAbono('');
+        const invalido = validarAbono(deudaAbono, montoAbono);
+        if (invalido) {
+            setErrorMonto(invalido);
+            return;
+        }
+        if (faltaCaja(deudaAbono)) {
+            setErrorAbono('Una de las cajas de este préstamo fue eliminada. No se puede abonar sin descuadrar los saldos.');
+            return;
+        }
+        const deudora = cajasPorId.get(deudaAbono.caja_deudora_id);
+        const monto = aMonto(montoAbono);
+        const despues = restarMontos(aMonto(deudora.saldo_actual), monto);
+        if (despues < 0) {
+            setSaldoBajo({ accion: 'abono', caja: deudora.nombre, saldo: aMonto(deudora.saldo_actual), monto, despues });
+            return;
+        }
+        guardarAbono();
+    }
+
+    // ---------------- Anular / eliminar ----------------
+
+    function pedirEliminar(deuda) {
+        limpiarAviso();
+        ejecutar(async () => {
+            try {
+                const analisis = await analizarEliminacion({ tipoDeuda: 'cajas', deudaId: deuda.id });
+                if (!analisis) {
+                    mostrarAviso('error', 'Este préstamo ya no existe.');
+                    return;
+                }
+                setAccion({ tipo: 'eliminar', analisis });
+            } catch (err) {
+                console.error('No se pudo revisar el préstamo:', err);
+                mostrarAviso('error', 'No se pudo revisar el préstamo. Intenta de nuevo.');
+            }
+        });
+    }
+
+    function pedirAnular(deuda) {
+        limpiarAviso();
+        ejecutar(async () => {
+            try {
+                const analisis = await analizarAnulacionDeAbono({ tipoDeuda: 'cajas', deudaId: deuda.id });
+                if (!analisis) {
+                    mostrarAviso('error', 'Este préstamo ya no tiene abonos para anular.');
+                } else if (!analisis.movimiento) {
+                    mostrarAviso('error', 'No se encontró el movimiento de este abono, así que no se puede anular sin descuadrar los saldos. Registra una transferencia de ajuste.');
+                } else if (analisis.cajasFaltantes.length > 0) {
+                    mostrarAviso('error', 'Una de las cajas de este abono fue eliminada. No se puede anular sin descuadrar los saldos.');
+                } else {
+                    setAccion({ tipo: 'anular', analisis });
+                }
+            } catch (err) {
+                console.error('No se pudo revisar el abono:', err);
+                mostrarAviso('error', 'No se pudo revisar el abono. Intenta de nuevo.');
+            }
+        });
+    }
+
+    function confirmarAccion() {
+        if (!accion) return undefined;
+        return ejecutar(async () => {
+            const { tipo, analisis } = accion;
+            try {
+                if (tipo === 'eliminar') {
+                    const revertible = analisis.movimiento && analisis.cajasFaltantes.length === 0;
+                    const { movimientoRevertido } = await eliminarDeuda({
+                        tipoDeuda: 'cajas',
+                        deudaId: analisis.deuda.id,
+                        movimientoId: revertible ? analisis.movimiento.id : null,
+                    });
+                    mostrarAviso('ok', movimientoRevertido
+                        ? 'Préstamo eliminado. Se revirtió su transferencia: el dinero volvió a la caja que prestó.'
+                        : 'Préstamo eliminado. Los saldos de las cajas no cambiaron.');
+                } else {
+                    await anularUltimoAbono({
+                        tipoDeuda: 'cajas',
+                        deudaId: analisis.deuda.id,
+                        clave: clavePago(analisis.pago),
+                        movimientoId: analisis.movimiento.id,
+                    });
+                    mostrarAviso('ok', `Abono de ${formatoMoneda(analisis.pago.monto)} anulado. Los saldos de las cajas volvieron a como estaban.`);
+                }
+                setAccion(null);
+                onDebtChanged?.();
+            } catch (err) {
+                console.error('No se pudo completar la operación:', err);
+                setAccion(null);
+                mostrarAviso('error', mensajeDeError(err, tipo === 'eliminar'
+                    ? 'No se pudo eliminar el préstamo. No cambió nada.'
+                    : 'No se pudo anular el abono. No cambió nada.'));
+            }
+        });
+    }
+
+    const alternar = useCallback((id) => setAbiertaId((actual) => (actual === id ? null : id)), []);
+
+    if (cargando) {
         return (
-            <div className="flex items-center justify-center h-32">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold"></div>
+            <div className="space-y-3" aria-busy="true" aria-label="Cargando préstamos">
+                <div className="skeleton h-6 w-48" />
+                <div className="skeleton h-20" />
+                <div className="skeleton h-16" />
             </div>
         );
     }
 
-    return (
-        <div className="space-y-4">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-                <h3 className="font-semibold flex items-center gap-2">
-                    <ArrowRightLeft size={18} className="text-gold" />
-                    Deudas Entre Cajas
-                </h3>
-                <button
-                    onClick={() => setShowForm(!showForm)}
-                    className="flex items-center gap-1 bg-gold text-white px-3 py-1.5 rounded-lg text-sm font-medium"
-                >
-                    <Plus size={16} />
-                    Nueva Deuda
-                </button>
-            </div>
+    const lista = vista === 'pendientes' ? pendientes : pagadas.slice(0, limitePagadas);
+    const restantesPagadas = vista === 'pagadas' ? pagadas.length - lista.length : 0;
+    const prestamosAbiertos = pendientes.length;
 
-            {/* Summary Cards */}
-            {debtsSummary.totalPending > 0 && (
-                <div className="card bg-amber-500/10 border-amber-500/30">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-amber-400">
-                            <AlertCircle size={18} />
-                            <span className="text-sm">Total Pendiente</span>
-                        </div>
-                        <span className="font-bold text-amber-400">{formatMoney(debtsSummary.totalPending)}</span>
-                    </div>
+    return (
+        <section className="space-y-4" aria-labelledby="titulo-prestamos-cajas">
+            <header className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <h3 id="titulo-prestamos-cajas" className="panel-title">Préstamos entre cajas</h3>
+                    <p className="mt-0.5 text-[13px] text-ink-3">Lo que una caja le debe a otra.</p>
                 </div>
+                <button type="button" className="btn-secondary" onClick={abrirNuevo} disabled={ocupado}>
+                    <Plus size={16} aria-hidden="true" />
+                    Nuevo préstamo
+                </button>
+            </header>
+
+            <AvisoEnLinea aviso={aviso} onCerrar={limpiarAviso} />
+
+            {error && (
+                <p role="alert" className="text-[14px] text-neg">No se pudieron leer los préstamos guardados en este dispositivo.</p>
             )}
 
-            {/* New Debt Form */}
-            {showForm && (
-                <form onSubmit={handleCreateDebt} className="card space-y-3">
-                    <h4 className="font-medium text-sm text-gray-400">Registrar Nuevo Préstamo</h4>
+            {datos.deudas.length > 0 && (
+                <FranjaKpi>
+                    <Kpi
+                        etiqueta="Por devolver"
+                        valor={formatoMoneda(resumen.totalPendiente)}
+                        meta={prestamosAbiertos === 1 ? '1 préstamo abierto' : `${prestamosAbiertos} préstamos abiertos`}
+                        marca="var(--warn)"
+                    />
+                    <Kpi
+                        etiqueta="Devuelto"
+                        valor={formatoMoneda(resumen.totalAbonado)}
+                        meta={`de ${formatoMoneda(resumen.totalOriginal)} prestado`}
+                        marca="var(--pos)"
+                    />
+                </FranjaKpi>
+            )}
 
-                    <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <label className="label">Caja que Presta</label>
-                            <select
-                                value={formData.cajaAcreedoraId}
-                                onChange={(e) => setFormData({ ...formData, cajaAcreedoraId: e.target.value })}
-                                className="input-field"
-                                required
-                            >
-                                <option value="">Seleccionar...</option>
-                                {cajas.map(c => (
-                                    <option key={c.id} value={c.id}>{c.nombre}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="label">Caja que Recibe</label>
-                            <select
-                                value={formData.cajaDeudoraId}
-                                onChange={(e) => setFormData({ ...formData, cajaDeudoraId: e.target.value })}
-                                className="input-field"
-                                required
-                            >
-                                <option value="">Seleccionar...</option>
-                                {cajas.map(c => (
-                                    <option key={c.id} value={c.id}>{c.nombre}</option>
-                                ))}
-                            </select>
-                        </div>
+            {datos.deudas.length === 0 ? (
+                <div className="empty-state">
+                    No hay préstamos entre cajas. Regístralos cuando una caja le preste dinero a otra.
+                </div>
+            ) : (
+                <>
+                    <div className="segmented" role="group" aria-label="Estado de los préstamos">
+                        <button type="button" aria-pressed={vista === 'pendientes'} onClick={() => setVista('pendientes')}>
+                            Pendientes <span className="num text-ink-3">{pendientes.length}</span>
+                        </button>
+                        <button type="button" aria-pressed={vista === 'pagadas'} onClick={() => setVista('pagadas')}>
+                            Pagados <span className="num text-ink-3">{pagadas.length}</span>
+                        </button>
                     </div>
 
-                    <div>
-                        <label className="label">Monto del Préstamo</label>
-                        <div className="relative">
-                            <DollarSign size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                            <input
-                                type="text"
-                                value={formatDisplayNumber(formData.monto)}
-                                onChange={(e) => setFormData({ ...formData, monto: parseFormattedNumber(e.target.value) })}
-                                className="input-field"
-                                style={{ paddingLeft: '40px' }}
-                                placeholder="0"
-                                required
-                                inputMode="numeric"
-                            />
+                    {lista.length === 0 ? (
+                        <div className="empty-state">
+                            {vista === 'pendientes' ? 'No hay préstamos pendientes.' : 'Todavía no hay préstamos pagados.'}
                         </div>
+                    ) : (
+                        <ul className="ledger">
+                            {lista.map((deuda) => (
+                                <FilaPrestamo
+                                    key={deuda.id}
+                                    deuda={deuda}
+                                    abierta={abiertaId === deuda.id}
+                                    onAlternar={alternar}
+                                    nombreCaja={nombreCaja}
+                                    cajaFalta={faltaCaja(deuda)}
+                                    ocupado={ocupado}
+                                    onAbonar={abrirAbono}
+                                    onAnular={pedirAnular}
+                                    onEliminar={pedirEliminar}
+                                />
+                            ))}
+                        </ul>
+                    )}
+
+                    {restantesPagadas > 0 && (
+                        <button type="button" className="btn-ghost w-full" onClick={() => setLimitePagadas((n) => n + PAGINA_PAGADAS)}>
+                            Ver {Math.min(PAGINA_PAGADAS, restantesPagadas)} más ({restantesPagadas} sin mostrar)
+                        </button>
+                    )}
+                </>
+            )}
+
+            {/* Nuevo préstamo */}
+            <HojaModal
+                abierta={hoja?.tipo === 'nuevo'}
+                titulo="Nuevo préstamo entre cajas"
+                onCerrar={cerrarHoja}
+                bloqueada={ocupado || !!saldoBajo}
+            >
+                <form onSubmit={enviarNuevo} noValidate className="space-y-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <CampoSelect
+                            id="prestamo-acreedora"
+                            etiqueta="Caja que presta"
+                            valor={form.acreedoraId}
+                            onCambio={(v) => cambiarCampo('acreedoraId', v)}
+                            error={errores.acreedoraId}
+                        >
+                            <option value="">Elegir caja</option>
+                            {cajasOrdenadas.map((c) => (
+                                <option key={c.id} value={c.id}>{c.nombre} ({formatoMoneda(c.saldo_actual)})</option>
+                            ))}
+                        </CampoSelect>
+                        <CampoSelect
+                            id="prestamo-deudora"
+                            etiqueta="Caja que recibe"
+                            valor={form.deudoraId}
+                            onCambio={(v) => cambiarCampo('deudoraId', v)}
+                            error={errores.deudoraId}
+                        >
+                            <option value="">Elegir caja</option>
+                            {cajasOrdenadas.map((c) => (
+                                <option key={c.id} value={c.id} disabled={c.id === form.acreedoraId}>{c.nombre}</option>
+                            ))}
+                        </CampoSelect>
                     </div>
 
+                    <CampoMonto
+                        id="prestamo-monto"
+                        etiqueta="Monto del préstamo"
+                        valor={form.monto}
+                        onCambio={(v) => cambiarCampo('monto', v)}
+                        error={errores.monto}
+                        ayuda={<NotaSaldo caja={cajasPorId.get(form.acreedoraId)} monto={form.monto} verbo="Sale de" />}
+                    />
+
                     <div>
-                        <label className="label">Descripción (opcional)</label>
+                        <label htmlFor="prestamo-concepto" className="label">
+                            Concepto <span className="font-normal text-ink-3">(opcional)</span>
+                        </label>
                         <input
+                            id="prestamo-concepto"
                             type="text"
-                            value={formData.descripcion}
-                            onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
                             className="input-field"
-                            placeholder="Ej: Préstamo para materiales"
+                            value={form.descripcion}
+                            onChange={(e) => cambiarCampo('descripcion', e.target.value)}
+                            placeholder="Ej.: materiales de la semana"
+                            maxLength={200}
                         />
                     </div>
 
-                    <div className="flex gap-2">
-                        <button type="submit" className="flex-1 bg-gold text-white py-2 rounded-lg font-medium">
-                            Registrar Préstamo
-                        </button>
-                        <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 bg-card rounded-lg">
-                            Cancelar
+                    {errores.general && <p role="alert" className="text-[14px] text-neg">{errores.general}</p>}
+
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                        <button type="button" className="btn-secondary" onClick={cerrarHoja} disabled={ocupado}>Cancelar</button>
+                        <button type="submit" className="btn-primary" disabled={ocupado}>
+                            {ocupado ? 'Guardando...' : 'Registrar préstamo'}
                         </button>
                     </div>
                 </form>
-            )}
+                <ConfirmacionSaldo saldoBajo={saldoBajo} ocupado={ocupado} onConfirmar={guardarNuevo} onCancelar={() => setSaldoBajo(null)} />
+            </HojaModal>
 
-            {/* Pending/Partial Debts */}
-            {[...debtsSummary.pending, ...debtsSummary.partial].length > 0 && (
-                <div className="space-y-2">
-                    <h4 className="text-sm text-gray-500 font-medium">Pendientes</h4>
-                    {[...debtsSummary.pending, ...debtsSummary.partial].map(deuda => (
-                        <div key={deuda.id} className="card">
-                            <button
-                                onClick={() => setExpandedId(expandedId === deuda.id ? null : deuda.id)}
-                                className="w-full flex items-center justify-between"
-                            >
-                                <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-lg ${deuda.estado === 'PARCIAL' ? 'bg-blue-500/20' : 'bg-red-500/20'}`}>
-                                        <Wallet size={18} className={deuda.estado === 'PARCIAL' ? 'text-blue-400' : 'text-red-400'} />
-                                    </div>
-                                    <div className="text-left">
-                                        <p className="font-medium text-white text-sm">
-                                            {getCajaName(deuda.caja_deudora_id)} → debe a → {getCajaName(deuda.caja_acreedora_id)}
-                                        </p>
-                                        <p className="text-xs text-gray-500">{deuda.fecha_prestamo}</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <div className="text-right">
-                                        <p className="font-bold text-red-400">{formatMoney(deuda.monto_pendiente)}</p>
-                                        {deuda.estado === 'PARCIAL' && (
-                                            <p className="text-xs text-gray-500">de {formatMoney(deuda.monto_original)}</p>
-                                        )}
-                                    </div>
-                                    {expandedId === deuda.id ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                                </div>
-                            </button>
-
-                            {expandedId === deuda.id && (
-                                <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
-                                    {deuda.descripcion && (
-                                        <p className="text-sm text-gray-400">{deuda.descripcion}</p>
-                                    )}
-
-                                    {/* Payment History */}
-                                    {deuda.pagos && deuda.pagos.length > 0 && (
-                                        <div>
-                                            <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">
-                                                <History size={12} /> Abonos realizados:
-                                            </p>
-                                            {deuda.pagos.map((pago, idx) => (
-                                                <div key={idx} className="flex justify-between text-sm">
-                                                    <span className="text-gray-400">{new Date(pago.fecha).toLocaleDateString()}</span>
-                                                    <span className="text-green-400">+{formatMoney(pago.monto)}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {/* Payment Form */}
-                                    {showPaymentForm === deuda.id ? (
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="text"
-                                                value={formatDisplayNumber(paymentAmount)}
-                                                onChange={(e) => setPaymentAmount(parseFormattedNumber(e.target.value))}
-                                                className="input-field flex-1"
-                                                placeholder="Monto a pagar"
-                                                inputMode="numeric"
-                                            />
-                                            <button
-                                                onClick={() => handlePayment(deuda.id)}
-                                                className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm"
-                                            >
-                                                Abonar
-                                            </button>
-                                            <button
-                                                onClick={() => setShowPaymentForm(null)}
-                                                className="bg-card px-3 py-2 rounded-lg"
-                                            >
-                                                <X size={16} />
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <div className="flex gap-2">
-                                            <button
-                                                onClick={() => setShowPaymentForm(deuda.id)}
-                                                className="flex-1 bg-green-600 text-white py-2 rounded-lg text-sm font-medium"
-                                            >
-                                                Registrar Abono
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteDebt(deuda.id)}
-                                                className="bg-red-600/20 text-red-400 px-3 py-2 rounded-lg text-sm"
-                                            >
-                                                Eliminar
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {/* Paid Debts */}
-            {debtsSummary.paid.length > 0 && (
-                <div className="space-y-2">
-                    <h4 className="text-sm text-gray-500 font-medium">Pagadas</h4>
-                    {debtsSummary.paid.slice(0, 5).map(deuda => (
-                        <div key={deuda.id} className="card opacity-60">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className="p-2 rounded-lg bg-green-500/20">
-                                        <CheckCircle size={18} className="text-green-400" />
-                                    </div>
-                                    <div>
-                                        <p className="text-sm text-gray-300">
-                                            {getCajaName(deuda.caja_deudora_id)} → {getCajaName(deuda.caja_acreedora_id)}
-                                        </p>
-                                    </div>
-                                </div>
-                                <span className="text-green-400 text-sm">{formatMoney(deuda.monto_original)}</span>
+            {/* Abono */}
+            <HojaModal
+                abierta={hoja?.tipo === 'abono'}
+                titulo="Registrar abono"
+                onCerrar={cerrarHoja}
+                bloqueada={ocupado || !!saldoBajo}
+            >
+                {deudaAbono ? (
+                    <form onSubmit={enviarAbono} noValidate className="space-y-4">
+                        <div className="rounded-md border border-line bg-surface-2 px-3 py-2.5">
+                            <p className="text-[14px] text-ink">
+                                {nombreCaja(deudaAbono.caja_deudora_id)}{' '}
+                                <span className="text-ink-3">le debe a</span>{' '}
+                                {nombreCaja(deudaAbono.caja_acreedora_id)}
+                            </p>
+                            <div className="mt-1 flex items-baseline justify-between gap-3">
+                                <span className="text-[13px] text-ink-3">Pendiente</span>
+                                <span className="amount text-neg">{formatoMoneda(deudaAbono.monto_pendiente)}</span>
                             </div>
                         </div>
-                    ))}
-                </div>
-            )}
 
-            {/* Empty State */}
-            {deudas.length === 0 && !showForm && (
-                <div className="card text-center py-8 text-gray-500">
-                    <ArrowRightLeft size={32} className="mx-auto mb-2 opacity-50" />
-                    <p>No hay deudas registradas entre cajas</p>
+                        <CampoMonto
+                            id="abono-prestamo-monto"
+                            etiqueta="Monto del abono"
+                            valor={montoAbono}
+                            onCambio={(v) => { setMontoAbono(v); setErrorMonto(''); }}
+                            error={errorMonto}
+                            ayuda={<NotaSaldo caja={cajasPorId.get(deudaAbono.caja_deudora_id)} monto={montoAbono} verbo="Sale de" />}
+                        />
+                        <button
+                            type="button"
+                            className="btn-ghost btn-sm"
+                            onClick={() => { setMontoAbono(String(Math.round(aMonto(deudaAbono.monto_pendiente)))); setErrorMonto(''); }}
+                        >
+                            Abonar todo lo pendiente
+                        </button>
+
+                        {errorAbono && <p role="alert" className="text-[14px] text-neg">{errorAbono}</p>}
+
+                        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                            <button type="button" className="btn-secondary" onClick={cerrarHoja} disabled={ocupado}>Cancelar</button>
+                            <button type="submit" className="btn-primary" disabled={ocupado || faltaCaja(deudaAbono)}>
+                                {ocupado ? 'Guardando...' : 'Registrar abono'}
+                            </button>
+                        </div>
+                    </form>
+                ) : (
+                    <p className="text-[14px] text-ink-3">Este préstamo ya no existe. Puede que lo hayan eliminado desde otro dispositivo.</p>
+                )}
+                <ConfirmacionSaldo saldoBajo={saldoBajo} ocupado={ocupado} onConfirmar={guardarAbono} onCancelar={() => setSaldoBajo(null)} />
+            </HojaModal>
+
+            <ConfirmacionAccion
+                accion={accion}
+                ocupado={ocupado}
+                nombreCaja={nombreCaja}
+                onConfirmar={confirmarAccion}
+                onCancelar={() => { if (!ocupado) setAccion(null); }}
+            />
+        </section>
+    );
+}
+
+function FilaPrestamo({ deuda, abierta, onAlternar, nombreCaja, cajaFalta, ocupado, onAbonar, onAnular, onEliminar }) {
+    const estado = estadoDe(deuda);
+    const pagada = estado === ESTADO_DEUDA.PAGADA;
+    const pagos = pagosDe(deuda);
+    const idDetalle = `prestamo-${deuda.id}`;
+    const deudora = nombreCaja(deuda.caja_deudora_id);
+    const acreedora = nombreCaja(deuda.caja_acreedora_id);
+
+    return (
+        <li>
+            <button
+                type="button"
+                className="ledger-row"
+                style={{ alignItems: 'flex-start' }}
+                aria-expanded={abierta}
+                aria-controls={idDetalle}
+                onClick={() => onAlternar(deuda.id)}
+            >
+                <div className="min-w-0 flex-1">
+                    <p className="break-words text-[15px] font-medium leading-snug text-ink">
+                        {deudora} <span className="font-normal text-ink-3">debe a</span> {acreedora}
+                    </p>
+                    <div className="mt-1.5 flex items-end justify-between gap-3">
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-3">
+                            <ChipEstadoDeuda estado={estado} masculino />
+                            <span className="num">{formatoFecha(deuda.fecha_prestamo || deuda.created_at)}</span>
+                        </div>
+                        <div className="shrink-0 text-right">
+                            <p className={`amount text-[17px] ${pagada ? 'text-ink-2' : 'text-neg'}`}>
+                                {formatoMoneda(pagada ? deuda.monto_original : deuda.monto_pendiente)}
+                            </p>
+                            {estado === ESTADO_DEUDA.PARCIAL && (
+                                <p className="num text-[12px] text-ink-3">de {formatoMoneda(deuda.monto_original)}</p>
+                            )}
+                        </div>
+                    </div>
+                    {!pagada && (
+                        <div className="mt-2">
+                            <MedidorAbono fraccion={fraccionAbonada(deuda)} etiqueta={`Devuelto del préstamo de ${deudora}`} />
+                        </div>
+                    )}
+                </div>
+                <ChevronDown
+                    size={18}
+                    aria-hidden="true"
+                    className={`mt-0.5 shrink-0 text-ink-3 transition-transform ${abierta ? 'rotate-180' : ''}`}
+                />
+            </button>
+
+            {abierta && (
+                <div id={idDetalle} className="space-y-3 border-t border-line bg-surface-2 px-4 py-3">
+                    {deuda.descripcion && <p className="text-[14px] text-ink-2">{deuda.descripcion}</p>}
+                    <p className="text-[12px] text-ink-3">
+                        Registrado por {deuda.usuario_nombre || 'sin nombre'}
+                        {deuda.created_at ? ` el ${formatoFechaHora(deuda.created_at)}` : ''}
+                    </p>
+
+                    {pagos.length > 0 && <HistorialAbonos pagos={pagos} />}
+
+                    {cajaFalta && !pagada && (
+                        <p className="flex items-start gap-2 text-[13px] text-warn">
+                            <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+                            Una de las cajas de este préstamo fue eliminada: no se puede abonar sin descuadrar los saldos.
+                        </p>
+                    )}
+
+                    <div className="flex flex-wrap gap-2">
+                        {!pagada && (
+                            <button type="button" className="btn-primary" onClick={() => onAbonar(deuda)} disabled={cajaFalta || ocupado}>
+                                Registrar abono
+                            </button>
+                        )}
+                        {pagos.length > 0 ? (
+                            <button type="button" className="btn-secondary" onClick={() => onAnular(deuda)} disabled={ocupado}>
+                                Anular último abono
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                className="btn-ghost"
+                                style={{ color: 'var(--neg)' }}
+                                onClick={() => onEliminar(deuda)}
+                                disabled={ocupado}
+                            >
+                                Eliminar préstamo
+                            </button>
+                        )}
+                    </div>
+                    {pagos.length > 0 && (
+                        <p className="text-[12px] text-ink-3">Para eliminar el préstamo, primero anula sus abonos.</p>
+                    )}
                 </div>
             )}
-        </div>
+        </li>
+    );
+}
+
+/** Saldo de la caja que paga y cómo queda, mientras se escribe el monto. */
+function NotaSaldo({ caja, monto, verbo }) {
+    if (!caja) return null;
+    const saldo = aMonto(caja.saldo_actual);
+    const valor = aMonto(monto);
+    if (!(valor > 0)) return <span>{caja.nombre} tiene {formatoMoneda(saldo)}.</span>;
+    const despues = restarMontos(saldo, valor);
+    return (
+        <span className={despues < 0 ? 'text-warn' : undefined}>
+            {verbo} {caja.nombre}: tiene {formatoMoneda(saldo)} y quedará con {formatoMoneda(despues)}.
+        </span>
+    );
+}
+
+function ConfirmacionSaldo({ saldoBajo, ocupado, onConfirmar, onCancelar }) {
+    return (
+        <ConfirmModal
+            isOpen={!!saldoBajo}
+            title="La caja quedará en negativo"
+            message={saldoBajo ? `${saldoBajo.caja} no tiene saldo suficiente. ¿Registrar de todas formas?` : ''}
+            details={saldoBajo ? [
+                { label: 'Saldo actual', value: formatoMoneda(saldoBajo.saldo) },
+                { label: 'Sale', value: formatoMoneda(saldoBajo.monto) },
+                { label: 'Saldo después', value: formatoMoneda(saldoBajo.despues), highlight: true },
+            ] : undefined}
+            confirmText="Registrar de todas formas"
+            textoProcesando="Guardando..."
+            cancelText="Revisar"
+            type="default"
+            procesando={ocupado}
+            onConfirm={onConfirmar}
+            onCancel={() => { if (!ocupado) onCancelar(); }}
+        />
+    );
+}
+
+function ConfirmacionAccion({ accion, ocupado, nombreCaja, onConfirmar, onCancelar }) {
+    if (!accion) return null;
+    const { tipo, analisis } = accion;
+    const { deuda } = analisis;
+
+    if (tipo === 'anular') {
+        const monto = aMonto(analisis.pago.monto);
+        return (
+            <ConfirmModal
+                isOpen
+                title="Anular último abono"
+                message="Se borra el abono y su transferencia. El préstamo vuelve a quedar con ese monto pendiente."
+                details={[
+                    { label: `Vuelve a ${nombreCaja(deuda.caja_deudora_id)}`, value: formatoMoneda(monto) },
+                    { label: `Sale de ${nombreCaja(deuda.caja_acreedora_id)}`, value: formatoMoneda(monto) },
+                    { label: 'Pendiente después', value: formatoMoneda(analisis.pendienteDespues), highlight: true },
+                ]}
+                confirmText="Anular abono"
+                textoProcesando="Anulando..."
+                cancelText="Cancelar"
+                type="danger"
+                procesando={ocupado}
+                onConfirm={onConfirmar}
+                onCancel={onCancelar}
+            />
+        );
+    }
+
+    const revertible = analisis.movimiento && analisis.cajasFaltantes.length === 0;
+    const monto = aMonto(deuda.monto_original);
+    return (
+        <ConfirmModal
+            isOpen
+            title="Eliminar préstamo"
+            message={revertible
+                ? 'Se elimina el préstamo y se revierte su transferencia: el dinero vuelve a la caja que prestó.'
+                : 'No se encontró la transferencia de este préstamo (o una de sus cajas ya no existe). Solo se borra el registro: los saldos de las cajas no cambian.'}
+            details={revertible ? [
+                { label: `Vuelve a ${nombreCaja(deuda.caja_acreedora_id)}`, value: formatoMoneda(monto) },
+                { label: `Sale de ${nombreCaja(deuda.caja_deudora_id)}`, value: formatoMoneda(monto) },
+            ] : [
+                { label: 'Préstamo', value: formatoMoneda(monto) },
+            ]}
+            confirmText="Eliminar préstamo"
+            textoProcesando="Eliminando..."
+            cancelText="Cancelar"
+            type="danger"
+            procesando={ocupado}
+            onConfirm={onConfirmar}
+            onCancel={onCancelar}
+        />
     );
 }
